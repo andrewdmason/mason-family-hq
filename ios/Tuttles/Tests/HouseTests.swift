@@ -619,27 +619,39 @@ final class HouseTests: XCTestCase {
         XCTAssertTrue(HouseTown.clear(HouseTown.west - 15, HouseTown.north - 15))
     }
 
-    func testMomAndDadsHouseHoldsTogetherAndIsFull() {
+    func testMomAndDadsHouseIsNiceAndModest() {
         let state = HouseTown.parents.state
-        // The first rooms, three of the newer ones, and the back field with a yard in it.
-        XCTAssertTrue(state.field)
-        for room in ["bedroom", "living", "kitchen", "bathroom", "den", "garden", "basement", "observatory", "cinema", "library", "secret",
-                     "pool", "diamond", "deck", "trampoline", "treehouse", "court", "vegpatch", "driveway"] {
-            XCTAssertTrue(state.rooms.contains(room), room)
-        }
+        // Four rooms on one floor, where they come; no field, nothing in the yard, none of the rooms that come later.
+        XCTAssertEqual(Set(state.rooms), ["bedroom", "living", "kitchen", "bathroom"])
+        XCTAssertFalse(state.field)
+        XCTAssertEqual(state.floors, [0])
+        XCTAssertTrue(state.rooms.allSatisfy { !HouseLayout.yard($0) && HouseCatalog.room($0)?.gems == 0 })
         XCTAssertNil(HouseLayout.problem(state.layout, field: state.field))
-        // The first rooms where they come: the house as it's drawn. And the ball field's in the back field.
-        for (room, p) in HouseLayout.home where room != HouseLayout.hall { XCTAssertEqual(state.plot(of: room), p, room) }
-        XCTAssertEqual(state.plot(of: "diamond"), HousePlot(10, 0))
+        for room in state.rooms { XCTAssertEqual(state.plot(of: room), HouseLayout.home[room], room) }
+        // Furnished: something in every spot but the pet's. And plainly: the cheapest there is for each,
+        // nothing for gems, nothing built in code to be shown off, but for the big bed.
         for id in state.rooms { for spot in HouseCatalog.room(id)?.spots ?? [] {
-            XCTAssertNotNil(state.item(in: spot, of: id), "nothing in \(id).\(spot.id)")
+            if case .pet = spot.place { XCTAssertNil(state.item(in: spot, of: id), "\(id) has a pet"); continue }
+            let item = state.item(in: spot, of: id)
+            XCTAssertNotNil(item, "nothing in \(id).\(spot.id)")
+            guard let item, !item.free, item.id != "bedroom.bed.double" else { continue }
+            XCTAssertEqual(item.gems, 0, item.id)
+            XCTAssertEqual(item.coins, spot.items.filter { $0.gems == 0 && $0.coins > 0 }.map(\.coins).min(), item.id)
         } }
+        // Outside, what it came with, and three cheap things.
+        let bought = state.owned.filter { $0.hasPrefix("outside.") }.compactMap { HouseCatalog.item($0) }
+        XCTAssertEqual(bought.count, 3)
+        XCTAssertTrue(bought.allSatisfy { $0.gems == 0 && $0.coins <= 120 })
     }
 
     func testMomAndDadsIsAlwaysThereAndTheMapButtonShowsEverything() {
         let stage = HouseStage()
         stage.setAspect(0.46)
-        stage.show([HouseShown(kid: "me", name: "Sebastian", mine: true, state: HouseState(), look: .plain)])
+        // (Their own has a basement; Mom & Dad's hasn't.)
+        var mine = HouseState()
+        mine.rooms = ["bedroom", "basement"]
+        mine.settle()
+        stage.show([HouseShown(kid: "me", name: "Sebastian", mine: true, state: mine, look: .plain)])
         XCTAssertNotNil(stage.state(of: HouseTown.parentsID))
         XCTAssertFalse(stage.wide)
         // Flown to, it opens like any other.
@@ -654,7 +666,7 @@ final class HouseTests: XCTestCase {
         // In its basement the town's put away, and it's back out on the street.
         let land = stage.scene.rootNode.childNode(withName: "land", recursively: false)
         XCTAssertEqual(land?.isHidden, false)
-        stage.fly(to: .room(HouseTown.parentsID, "basement"), animated: false)
+        stage.fly(to: .room("me", "basement"), animated: false)
         XCTAssertEqual(land?.isHidden, true)
         // Pulled back to the whole neighbourhood: everything shut, until it's moved.
         stage.flyToTown(animated: false)

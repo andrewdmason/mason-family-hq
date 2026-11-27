@@ -371,7 +371,9 @@ in each room fixed spots, each with its own things to choose between.
   end out to Oak Knoll, inside four straight streets (Kelsey, Garber, Oak
   Knoll, Russell), their names painted on them, with trees and hills past
   them. Mom & Dad's house is at the top of the turning circle up a drive:
-  ready-made, every room, both of them on the step, and anyone
+  ready-made and modest (four rooms on one floor, plainly furnished, no yard:
+  the best things are for the kids to unlock in their own houses and be seen
+  there first), both of them on the step, and anyone
   can look round it but nobody builds it (`HouseTown.parents`; the stage adds
   it to whatever it's shown). Oscar's lot is west of the circle and
   Sebastian's two doors east of Mom & Dad's, by name (`HouseTown.lots`);
@@ -379,8 +381,7 @@ in each room fixed spots, each with its own things to choose between.
   Five neighbours' houses (shut, nobody's), the big place with the pool and
   Monkey Island Park fill it out, and three lots are bare grass, for buying
   a second house on later (not built yet). Each of the family's lots has
-  room behind it for its back field; Mom & Dad's has theirs already, with a
-  ball field, a pool and the rest in it, to show what one's for. The camera looks from the
+  room behind it for its back field. The camera looks from the
   south-east, so front doors are on the south: houses north of Avalon open
   onto it, those south of it onto Russell. Each house has its fence and
   trees at the back (`HouseLand.swift`) and a path from its door to the

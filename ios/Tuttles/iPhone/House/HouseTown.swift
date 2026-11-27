@@ -5,7 +5,7 @@ import UIKit
 // Berkeley: Avalon Ave winding from the turning circle at its west end out to
 // Oak Knoll, inside four straight streets (Kelsey, Garber, Oak Knoll,
 // Russell). Mom & Dad's house is up a drive at the top of the turning circle,
-// ready-made, the biggest on the street, and anyone can look round it. Oscar's
+// ready-made and modest, and anyone can look round it. Oscar's
 // lot is on the west of the circle and Sebastian's two doors east of Mom &
 // Dad's. The rest are neighbours' houses (shut, nobody's to open), the big
 // place with the pool behind, Monkey Island Park in the corner, and three
@@ -20,8 +20,7 @@ import UIKit
 //
 // A lot is all the land a house can have: the lot proper, on the street, and
 // behind it (north) the back field, which is rough grass until it's bought
-// (HouseLayout.swift). Mom & Dad's has its field already, with a ball field
-// and a pool in it, to show what one's for.
+// (HouseLayout.swift).
 
 enum HouseTown {
     // MARK: The plan
@@ -113,33 +112,32 @@ enum HouseTown {
 
     static let parentsID = "parents"
 
-    /// Mom & Dad's house: every room there is, each with something in every
-    /// spot. Nobody builds it; it's there to look round.
+    /// Mom & Dad's house: nice, and modest (Andrew, 2026-11-27: "it shouldn't
+    /// have absolutely everything... I want those kids to have to unlock those
+    /// things in their own houses to see them in action"). Four rooms, plainly
+    /// furnished. Nobody builds it; it's there to look round.
     static let parents: HouseShown = {
         var state = HouseState()
-        // The first rooms, each where it stands in a house as it comes (HouseLayout.home); a cinema off the
-        // kitchen, a library and a room nobody's meant to find upstairs; and the field behind, full.
-        state.land = 1
-        let extra: [String: HousePlot] = [
-            "cinema": HousePlot(12, 24), "library": HousePlot(12, 19, floor: 1), "secret": HousePlot(12, 15, floor: 1),
-            "diamond": HousePlot(10, 0), "pool": HousePlot(0, 0), "deck": HousePlot(1, 6), "trampoline": HousePlot(6, 6),
-            "treehouse": HousePlot(0, 10), "court": HousePlot(14, 10, turn: 1), "vegpatch": HousePlot(17, 16), "driveway": HousePlot(0, 24),
-        ]
-        state.rooms = ["living", "kitchen", "garden", "den", "bathroom", "bedroom", "observatory", "basement"] + extra.keys.sorted()
-        for (room, p) in HouseLayout.home.merging(extra, uniquingKeysWith: { $1 }) { state.plots[room] = p.kept }
+        // A modest house: four rooms on one floor, each where it stands in a house as it comes
+        // (HouseLayout.home). No back field and nothing in the yard, no upstairs, none of the rooms that
+        // come later. What's best is for the kids to have in their own houses, and to be seen there first.
+        state.rooms = ["bedroom", "living", "kitchen", "bathroom"]
         state.settle()
-        for (r, room) in HouseCatalog.everything.enumerated() {
-            for (s, spot) in room.spots.enumerated() where !spot.items.isEmpty {
-                // Not the first thing in every spot, nor the dearest: a mix. (A yard thing as it comes.)
-                var item = spot.items[spot.id == room.id ? 0 : (r + s) % min(spot.items.count, 3)]
-                // (And a big bed, not bunks.)
-                if room.id == "bedroom", spot.id == "bed", let double = spot.items.first(where: { $0.id == "bedroom.bed.double" }) { item = double }
+        for id in state.rooms {
+            guard let room = HouseCatalog.room(id) else { continue }
+            for spot in room.spots where spot.starter == nil {
+                // (No pets: those are for gems.)
+                if case .pet = spot.place { continue }
+                // The plainest thing there is for each spot: furnished, and nothing a kid couldn't have in their first week.
+                guard var item = spot.items.filter({ $0.gems == 0 && $0.coins > 0 }).min(by: { $0.coins < $1.coins }) else { continue }
+                // (But a big bed: there are two of them.)
+                if id == "bedroom", spot.id == "bed", let double = spot.items.first(where: { $0.id == "bedroom.bed.double" }) { item = double }
                 state.owned.append(item.id)
-                state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
+                state.placed[HouseCatalog.key(id, spot.id)] = item.id
             }
         }
-        // And the front of it done properly: a porch, roses under the windows, shutters, a lamp by the road, a fountain.
-        for id in ["outside.porch.porch", "outside.beds.roses", "outside.windows.shutters", "outside.kerb.lamp", "outside.garden.fountain", "outside.door.blue"] {
+        // The front as it comes, but for a blue door, a mailbox and tulips under the windows.
+        for id in ["outside.door.blue", "outside.lawn.mailbox", "outside.beds.tulips"] {
             let parts = id.split(separator: ".").map(String.init)
             state.owned.append(id)
             state.placed[HouseCatalog.key(parts[0], parts[1])] = id

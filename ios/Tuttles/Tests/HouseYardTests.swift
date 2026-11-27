@@ -7,6 +7,36 @@ import XCTest
 /// that's won and not bought, and the family who are about in the open house.
 @MainActor
 final class HouseYardTests: XCTestCase {
+    /// A house with most things in it and the back field full, to try things on: the first rooms where
+    /// they come, a cinema off the kitchen, a library and the secret room upstairs, and a yard.
+    static let showcase: HouseShown = {
+        var state = HouseState()
+        state.land = 1
+        let extra: [String: HousePlot] = [
+            "cinema": HousePlot(12, 24), "library": HousePlot(12, 19, floor: 1), "secret": HousePlot(12, 15, floor: 1),
+            "diamond": HousePlot(10, 0), "pool": HousePlot(0, 0), "deck": HousePlot(1, 6), "trampoline": HousePlot(6, 6),
+            "treehouse": HousePlot(0, 10), "court": HousePlot(14, 10, turn: 1), "vegpatch": HousePlot(17, 16), "driveway": HousePlot(0, 24),
+        ]
+        state.rooms = ["living", "kitchen", "garden", "den", "bathroom", "bedroom", "observatory", "basement"] + extra.keys.sorted()
+        for (room, p) in HouseLayout.home.merging(extra, uniquingKeysWith: { $1 }) { state.plots[room] = p.kept }
+        state.settle()
+        for (r, room) in HouseCatalog.everything.enumerated() {
+            for (s, spot) in room.spots.enumerated() where !spot.items.isEmpty {
+                let item = spot.items[spot.id == room.id ? 0 : (r + s) % min(spot.items.count, 3)]
+                state.owned.append(item.id)
+                state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
+            }
+        }
+        return HouseShown(kid: "show", name: "Show", mine: false, state: state, look: .plain)
+    }()
+
+    func testTheShowcaseHoldsTogether() {
+        let state = Self.showcase.state
+        XCTAssertNil(HouseLayout.problem(state.layout, field: state.field))
+        XCTAssertEqual(state.plot(of: "diamond"), HousePlot(10, 0))
+        XCTAssertTrue(state.rooms.contains("pool") && state.rooms.contains("cinema"))
+    }
+
     // MARK: Land and the yard
 
     func testTheBackFieldIsBoughtOnceAndIsWhereYardThingsCanGo() throws {
@@ -65,9 +95,9 @@ final class HouseYardTests: XCTestCase {
     }
 
     func testFindingSomewhereForAThingIsQuickEvenInAFullHouse() {
-        // Mom & Dad's, which has most things: asking where each thing they haven't got could go (as Build's
+        // A house with most things in it: asking where each thing it hasn't got could go (as Build's
         // list does for every row, every time it's drawn) takes no time worth noticing, fit or no fit.
-        let state = HouseTown.parents.state
+        let state = Self.showcase.state
         let missing = (HouseCatalog.rooms + HouseCatalog.yard).filter { !state.has(room: $0.id) }
         XCTAssertGreaterThan(missing.count, 5)
         let start = Date()
@@ -215,7 +245,7 @@ final class HouseYardTests: XCTestCase {
     func testWallsThatComeDownStayInTheHouse() {
         // Dragging about swaps which walls stand, over and over. The ones not standing are hidden and
         // kept, so nothing is ever taken out of the scene by a fade that's still running.
-        let built = HouseBuilt(HouseTown.parents, on: HouseTown.parentsLot, sky: .noon)
+        let built = HouseBuilt(Self.showcase, on: HouseTown.parentsLot, sky: .noon)
         let views = [HouseVantage(x: 1, z: 1), HouseVantage(x: -1, z: 1), .flat, HouseVantage(x: 1, z: -1), HouseVantage(x: 1, z: 1)]
         for (i, view) in (views + views + views).enumerated() {
             built.present(floor: 0, view: view, focus: i % 3 == 0 ? "living" : i % 3 == 1 ? "pool" : nil, animated: true)
@@ -285,9 +315,9 @@ final class HouseYardTests: XCTestCase {
 
     // MARK: The family
 
-    func testTheFamilyGetAboutMomAndDads() throws {
+    func testTheFamilyGetAboutABigHouse() throws {
         let sky = HouseSky.noon
-        let built = HouseBuilt(HouseTown.parents, on: HouseTown.parentsLot, sky: sky)
+        let built = HouseBuilt(Self.showcase, on: HouseTown.parentsLot, sky: sky)
         built.present(floor: 0, view: HouseVantage(x: 1, z: 1), focus: nil, animated: false)
         let life = HouseLife()
         life.gather([.person(.sebastian, name: "Sebastian", height: 1.25), .person(.oscar, name: "Oscar", height: 1.25),
