@@ -20,6 +20,8 @@ struct HousePlan {
         /// The colour of its walls and of their skirting, and what's on the floor: a pattern and two colours.
         var paint = "f3ead2"
         var skirting = "c9b78f"
+        /// Wallpaper, if it has any: a pattern and its two colours (the first is `paint`, which is what shows outdoors).
+        var paper: [String]?
         var flooring = ["boards", "c98f55", "a8733f"]
         /// Out of doors, though it's a room: the garden. It has a fence, not walls, and the house's walls stand between it and the rooms.
         var outdoor = false
@@ -133,6 +135,8 @@ struct HouseVantage: Hashable {
 
     /// Nothing cut down: a house that's shut, or a floor with another shown on top of it.
     static let shut = HouseVantage(x: 0, z: 0)
+    /// Everything cut down, whichever side it's seen from: for looking over the house at what's in the yard.
+    static let flat = HouseVantage(x: 9, z: 9)
 
     /// Looking from `yaw` (0 from the south, a quarter turn from the east),
     /// given what it was: a side comes down a little after the camera's
@@ -157,6 +161,7 @@ extension HousePlan.Floor {
     /// always as it is.
     func lowered(_ e: HousePlan.Edge, from view: HouseVantage, focus: Character? = nil) -> Bool {
         if view == .shut || fence(e) { return false }
+        if view == .flat { return true }
         let (a, b) = sides(e)
         // Which side of this wall the camera's on: 1 south or east of it, -1 north or west.
         let camera = e.across ? view.z : view.x

@@ -11,6 +11,30 @@ import UIKit
 // year (earlier evenings in winter), not from where the phone is: near
 // enough that it's dark in the house about when it's dark outside it.
 
+/// The time of year, for what the street puts out: lights and a dusting of
+/// snow through December and the first days of January, pumpkins on the
+/// step for the second half of October.
+enum HouseSeason: Equatable {
+    case plain, winter, halloween
+
+    static func on(month: Int, day: Int) -> HouseSeason {
+        if month == 12 || (month == 1 && day <= 6) { return .winter }
+        if month == 10 && day >= 15 { return .halloween }
+        return .plain
+    }
+
+    /// Now, by the phone's date; or, in the simulator, `--house-date 12-20`.
+    static var now: HouseSeason {
+        let args = CommandLine.arguments
+        if let at = args.firstIndex(of: "--house-date"), args.count > at + 1 {
+            let parts = args[at + 1].split(separator: "-").compactMap { Int($0) }
+            if parts.count == 2 { return on(month: parts[0], day: parts[1]) }
+        }
+        let parts = Calendar.current.dateComponents([.month, .day], from: Date())
+        return on(month: parts.month ?? 6, day: parts.day ?? 1)
+    }
+}
+
 struct HouseSky: Equatable {
     /// How much daylight there is: 1 in the day, 0 at night.
     let day: Float

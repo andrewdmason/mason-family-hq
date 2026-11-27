@@ -48,6 +48,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         case house(String)
         case room(String, String)
         case spot(String, String, String)
+        /// A thing in the room that's in focus: whose house, the room and the spot.
+        case thing(String, String, String)
+        /// One of the family, by name.
+        case person(String)
     }
 
     /// A room in hand, being put somewhere: where it would stand, and why it can't, if it can't.
@@ -57,6 +61,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         /// One being bought, not one of theirs being moved.
         var new: Bool
         var trouble: String?
+        /// It can go there, but would be better otherwise: its door would be behind something.
+        var advice: String? = nil
     }
 
     let scene = SCNScene()
@@ -70,6 +76,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Whoever's at home in each, for the renderer's thread to keep moving.
     private var actors: [MathCharacter] = []
     private let lock = NSLock()
+    /// The family, who are about in whichever house is open (HouseLife.swift).
+    let life = HouseLife()
+    /// The floor of the open house that's shown, for the renderer's thread.
+    private var lifeFloor: Int?
 
     /// A card's up over the bottom of the screen, for a spot of the room in focus (or the outside of a house).
     private(set) var lifted = false
@@ -158,7 +168,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         cameraNode.camera = c
         scene.rootNode.addChildNode(cameraNode)
         light()
-        show([])
+        // (Nothing's built until there's a street to show: `show`.)
+        frame()
     }
 
     // MARK: Light
@@ -218,23 +229,77 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     // MARK: The houses
 
+    /// The way of showing the street that's under way: a later one stops an earlier one's houses from arriving.
+    private var showing = 0
+
     /// Everyone's houses, as they stand now. Mom & Dad's is added to them.
-    func show(_ houses: [HouseShown]) {
-        self.houses = houses.filter { $0.kid != HouseTown.parentsID } + [HouseTown.parents]
-        lots = HouseTown.lots(for: self.houses.map { ($0.kid, $0.name) })
-        rebuild()
-        // The family's end of the street: every house that's somebody's, all in view.
-        var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
-        for b in built.values {
-            lo = simd_min(lo, SIMD2(b.middle.x, b.middle.z) - SIMD2(repeating: b.radius))
-            hi = simd_max(hi, SIMD2(b.middle.x, b.middle.z) + SIMD2(repeating: b.radius))
+    /// Only what's changed since they were last shown is built again. `staged`
+    /// (as the screen asks for; not the tests), their own house is built at
+    /// once and the others one at a time over the next moments, so the street's
+    /// there without waiting for all of it.
+    func show(_ houses: [HouseShown], staged: Bool = false) {
+        let next = houses.filter { $0.kid != HouseTown.parentsID } + [HouseTown.parents]
+        let nextLots = HouseTown.lots(for: next.map { ($0.kid, $0.name) })
+        let was = Dictionary(uniqueKeysWithValues: self.houses.map { ($0.kid, $0) })
+        // Whoever's gone, or is on another lot now, comes down.
+        for kid in Array(built.keys) where !next.contains(where: { $0.kid == kid }) || nextLots[kid] != lots[kid] {
+            built[kid]?.node.removeFromParentNode()
+            built[kid] = nil
         }
+        // Their own first, Mom & Dad's (the biggest) last.
+        let changed = next.filter { built[$0.kid] == nil || was[$0.kid] != $0 }
+            .sorted { ($0.mine ? 0 : $0.kid == HouseTown.parentsID ? 2 : 1) < ($1.mine ? 0 : $1.kid == HouseTown.parentsID ? 2 : 1) }
+        self.houses = next
+        lots = nextLots
+        showing += 1
+        let run = showing
+        // The family: each kid, Mom and Dad, and the pets.
+        var family: [HouseLife.Who] = []
+        for house in next where house.kid != HouseTown.parentsID {
+            family.append(.person(house.look, name: house.name.split(separator: " ").first.map(String.init) ?? house.name, height: 1.25))
+        }
+        family.append(.person(HouseTown.parents.look, name: "Dad", height: 1.5))
+        if let mom = HouseTown.parents.partner { family.append(.person(mom, name: "Mom", height: 1.45)) }
+        family += [.dog(name: "Charlie"), .cat(name: "Pippy")]
+        frame()
+        guard staged else {
+            life.gather(family)
+            for house in changed { rebuild(house.kid) }
+            present(animated: false)
+            return
+        }
+        var later: [() -> Void] = [{ [weak self] in self?.life.gather(family) }]
+        for (n, house) in changed.enumerated() {
+            if n == 0, house.mine { rebuild(house.kid) } else { later.append { [weak self] in self?.rebuild(house.kid) } }
+        }
+        present(animated: false)
+        func step() {
+            guard run == showing, !later.isEmpty else { return }
+            later.removeFirst()()
+            present(animated: false)
+            DispatchQueue.main.async(execute: step)
+        }
+        DispatchQueue.main.async(execute: step)
+    }
+
+    /// The family's end of the street: every house that's somebody's, all in
+    /// view. Worked out from where their rooms are, not from the houses as
+    /// built, so it's the same before they've all arrived.
+    private func frame() {
+        var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
+        for house in houses {
+            guard let lot = lots[house.kid] else { continue }
+            let reach = HouseBuilt.reach(of: house.state.layout)
+            let middle = SIMD2(lot.x, lot.z) + (reach.lo + reach.hi) / 2, radius = simd_length(reach.hi - reach.lo) / 2
+            lo = simd_min(lo, middle - SIMD2(repeating: radius))
+            hi = simd_max(hi, middle + SIMD2(repeating: radius))
+        }
+        guard lo.x <= hi.x else { return }
         home = Eye(target: SIMD3((lo.x + hi.x) / 2, 0.8, (lo.y + hi.y) / 2), yaw: Self.corner, distance: fit(simd_length(hi - lo) / 2))
         // Until somebody's moved it, that's what's looked at.
         if !moved {
             lock.lock(); eye = home; goal = home; lock.unlock()
         }
-        present(animated: false)
     }
 
     /// How far off the camera has to be to take in this much, either way from what it looks at.
@@ -260,6 +325,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     }
 
     func state(of kid: String) -> HouseState? { houses.first { $0.kid == kid }?.state }
+
+    /// The lot a house is on.
+    func lot(of kid: String) -> HouseTown.Lot? { lots[kid] }
 
     /// One house has changed (something tried in a spot, or bought): build
     /// it again. `popping` is the spot whose thing has just arrived.
@@ -309,6 +377,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             if case .room(let k, let id) = focus, k == kid, held == nil { room = id }
             b.present(floor: kid == open ? level(b) : nil, view: vantage, focus: room, animated: animated)
         }
+        let home = open.flatMap { built[$0] }
+        life.move(into: home)
+        lock.lock(); lifeFloor = home?.showing; lock.unlock()
         tidy()
     }
 
@@ -332,8 +403,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                 var inRoom = false
                 if case .room(best.kid, _) = was { inRoom = true }
                 if best.kid != current { floor = nil }
-                if e.distance <= (inRoom ? far : near), let room = b.room(under: at, floor: level(b)) { focus = .room(best.kid, room) }
-                else { focus = .house(best.kid) }
+                // (A big thing is still what's looked at from further off: the ball field doesn't fit on the screen from as near as a bathroom does.)
+                if let room = b.room(under: at, floor: level(b)), let p = b.all[room],
+                   e.distance <= max(inRoom ? far : near, Float(max(HouseLayout.size(room, p).width, HouseLayout.size(room, p).depth)) * 3.3 + (inRoom ? 5 : 1)) {
+                    focus = .room(best.kid, room)
+                } else { focus = .house(best.kid) }
             } else {
                 focus = .street
                 floor = nil
@@ -405,6 +479,70 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         moved = true
     }
 
+    /// For the simulator: look from this far off, this many quarter turns round from the first corner, at a point this far east and south of where it's looking.
+    func peer(distance: Float?, quarters: Float?, east: Float = 0, south: Float = 0) {
+        lock.lock()
+        if let distance { goal.distance = distance }
+        if let quarters { goal.yaw = Self.corner + quarters * .pi / 2 }
+        goal.target += SIMD3(east, 0, south)
+        eye = goal
+        lock.unlock()
+        moved = true
+        settle()
+        changed?()
+    }
+
+    /// For the simulator (`--house-gallery 0`): everything in the catalogue that's built in code or comes from
+    /// one of the newer packs, set out in rows on bare ground away from the town, twenty to a page, each with
+    /// its name, and the camera on them. The pets are on the last page.
+    func gallery(page: Int) {
+        var seen: Set<HouseItem.Look> = [], items: [HouseItem] = []
+        for room in HouseCatalog.everything + [HouseCatalog.outside] { for spot in room.spots { for item in spot.items {
+            switch item.look {
+            case .made, .model: if seen.insert(item.look).inserted { items.append(item) }
+            case .kit(let name, _) where name.first?.isUppercase == true: if seen.insert(item.look).inserted { items.append(item) }
+            default: break
+            }
+        } } }
+        let per = 18, columns = 3, gap: Float = 4.4
+        // (Up in the air, clear of the hills.)
+        let origin = SIMD3<Float>(400, 90, 0)
+        let holder = SCNNode()
+        holder.name = "gallery"
+        let ground = SCNNode(geometry: SCNPlane(width: 60, height: 60))
+        ground.geometry?.materials = [HouseLook.plain(HouseLook.color("cfd6c4"), rough: 0.95)]
+        ground.simdEulerAngles.x = -.pi / 2
+        ground.simdPosition = origin + SIMD3(gap, -0.01, gap * 2.5)
+        holder.addChildNode(ground)
+        var shown: [(String, SCNNode)] = []
+        let slice = items.dropFirst(page * per).prefix(per)
+        for item in slice { if let thing = HouseThings.make(item, HouseFinish(), sky: sky) { shown.append((item.id.split(separator: ".").suffix(2).joined(separator: "."), thing)) } }
+        if slice.isEmpty {
+            let dog = HouseStreetProps.greyhound(), cat = HouseStreetProps.cat()
+            for (name, pet) in [("Charlie", dog), ("Pippy", cat)] { HouseLook.physical(pet); shown.append((name, pet)) }
+        }
+        for (i, entry) in shown.enumerated() {
+            let at = origin + SIMD3(Float(i % columns) * gap, 0, Float(i / columns) * gap)
+            entry.1.simdPosition = at
+            holder.addChildNode(entry.1)
+            let label = HouseProps.sign([entry.0])
+            HouseLook.physical(label)
+            label.simdScale = SIMD3(repeating: 0.55)
+            label.simdPosition = at + SIMD3(0, 0.02, 1.9)
+            label.simdEulerAngles.x = -.pi / 2
+            label.castsShadow = false
+            holder.addChildNode(label)
+        }
+        scene.rootNode.childNode(withName: "gallery", recursively: false)?.removeFromParentNode()
+        scene.rootNode.addChildNode(holder)
+        print("GALLERY page \(page) of \((items.count + per - 1) / per): \(shown.map(\.0).joined(separator: ", "))")
+        lock.lock()
+        goal = Eye(target: origin + SIMD3(gap, 0.6, gap * 2.6), yaw: 0.35, distance: 37)
+        eye = goal
+        lock.unlock()
+        moved = true
+    }
+
     /// Where the camera's going.
     var looking: Eye { lock.lock(); defer { lock.unlock() }; return goal }
 
@@ -416,14 +554,19 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             // As it's first shown, from the corner it's first seen from.
             goal = Eye(target: home.target, yaw: nearest(Self.corner, to: goal.yaw), distance: home.distance)
         case .house(let kid):
+            // (A house that hasn't arrived yet is built now, to fly to.)
+            if built[kid] == nil { lock.unlock(); rebuild(kid); lock.lock() }
             guard let b = built[kid] else { lock.unlock(); return }
             goal.target = b.middle + SIMD3(0, 0.8, 0)
             goal.distance = min(max(b.radius * 3.4, 38), opens - 6)
         case .room(let kid, let room):
+            if built[kid] == nil { lock.unlock(); rebuild(kid); lock.lock() }
             guard let b = built[kid], let at = b.middle(of: room), let p = b.all[room] else { lock.unlock(); return }
             floor = p.floor
             goal.target = at + SIMD3(0, 0.8, 0)
-            goal.distance = 18
+            // (Far enough off to take in a big one: the pool, the ball field.)
+            let (w, d) = HouseLayout.size(room, p)
+            goal.distance = max(18, Float(max(w, d)) * 3.3)
         }
         if !animated { eye = goal }
         lock.unlock()
@@ -475,7 +618,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             to.target = raised(b.middle + SIMD3(0, 2, 0), to)
         } else if let at = b.middle(of: room), let p = b.all[room] {
             // Its things are against its north and west walls as it's drawn: seen from its south-east, they face the camera.
-            to.yaw = nearest(Self.corner - Float(p.turn) * .pi / 2, to: goal.yaw)
+            // (A yard thing has no walls: it's left as it's being looked at.)
+            if !HouseLayout.yard(room) { to.yaw = nearest(Self.corner - Float(p.turn) * .pi / 2, to: goal.yaw) }
             let (w, d) = HouseLayout.size(room, p)
             to.distance = 12 + Float(max(w, d)) * 1.1
             to.target = raised(at + SIMD3(0, 0.8, 0), to)
@@ -520,8 +664,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Show a floor of the open house; a room in hand goes to it.
     func setFloor(_ floor: Int?) {
         self.floor = floor
-        if var h = held, let floor {
-            h.plot.floor = floor
+        if var h = held, let floor, floor != h.plot.floor {
+            // It goes to the nearest place on that floor it can stand, if there is one: upstairs, by the landing.
+            var to = h.plot
+            to.floor = floor
+            h.plot = mine?.state.place(for: h.room, on: floor, near: to) ?? to
             held = h
             weigh()
         }
@@ -542,8 +689,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         eye.distance += (goal.distance - eye.distance) * ease
         let e = eye
         let people = actors
+        let shown = lifeFloor
         lock.unlock()
         place(e)
+        life.step(dt, showing: shown, facing: e.yaw)
         for who in people {
             who.update(dt)
             who.node.simdEulerAngles.y = .pi + e.yaw
@@ -621,20 +770,59 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         for child in ghost.childNodes { child.removeFromParentNode() }
         guard var h = held, let mine, let lot = lots[mine.kid] else { return }
         h.trouble = mine.state.problem(putting: h.room, at: h.plot)?.message(moving: h.room)
+        h.advice = nil
+        if h.trouble == nil {
+            let door = mine.state.blockedDoor(putting: h.room, at: h.plot)
+            if door.blocked {
+                h.advice = door.by.map { "It can go here, but the door would be behind the \(HouseLayout.name($0).lowercased())'s things." }
+                    ?? "It can go here, but the door would be behind its things. Turn it to keep the door clear."
+            }
+        }
         held = h
         let shape = HouseLayout.shape(h.room)
         let (w, d) = HouseLayout.size(h.room, h.plot)
         let m = SCNMaterial()
         m.lightingModel = .constant
-        m.diffuse.contents = HouseLook.color(h.trouble == nil ? "3fae5a" : "d64534")
-        m.transparency = 0.45
+        m.diffuse.contents = HouseLook.color(h.trouble == nil ? (shape.yard ? "fff06a" : "3fae5a") : "d64534")
+        m.transparency = shape.yard ? 0.6 : 0.45
         m.writesToDepthBuffer = false
         // Its floor, and the two walls its things are against, so it's plain which way it faces.
         let batch = HouseBatch()
         let (W, D) = (Float(shape.width), Float(shape.depth))
         batch.box(SIMD3(0.05, 0, 0.05), SIMD3(W - 0.05, 0.25, D - 0.05), m)
-        batch.box(SIMD3(0.05, 0.25, 0.05), SIMD3(W - 0.05, 2.2, 0.25), m)
-        batch.box(SIMD3(0.05, 0.25, 0.25), SIMD3(0.25, 2.2, D - 0.05), m)
+        if shape.yard {
+            // A kerb all round it, so it shows on the grass.
+            for (lo, hi) in [(SIMD3<Float>(0.05, 0.25, 0.05), SIMD3<Float>(W - 0.05, 0.9, 0.2)), (SIMD3(0.05, 0.25, D - 0.2), SIMD3(W - 0.05, 0.9, D - 0.05)),
+                             (SIMD3(0.05, 0.25, 0.2), SIMD3(0.2, 0.9, D - 0.2)), (SIMD3(W - 0.2, 0.25, 0.2), SIMD3(W - 0.05, 0.9, D - 0.2))] {
+                batch.box(lo, hi, m)
+            }
+        } else {
+            batch.box(SIMD3(0.05, 0.25, 0.05), SIMD3(W - 0.05, 2.2, 0.25), m)
+            batch.box(SIMD3(0.05, 0.25, 0.25), SIMD3(0.25, 2.2, D - 0.05), m)
+        }
+        // Upstairs with nothing up there yet: where the stairs come up is shown, over the hall, since that's
+        // what the first room up there has to touch.
+        if h.plot.floor == 1, mine.state.plot(of: HouseLayout.landing) == nil, let entry = mine.state.plot(of: HouseLayout.hall) {
+            let (lw, ld) = HouseLayout.size(HouseLayout.hall, entry)
+            let pale = SCNMaterial()
+            pale.lightingModel = .constant
+            pale.diffuse.contents = HouseLook.color("ffffff")
+            pale.transparency = 0.7
+            pale.writesToDepthBuffer = false
+            let mark = HouseBatch()
+            mark.box(SIMD3(0.1, 0, 0.1), SIMD3(Float(lw) - 0.1, 0.3, Float(ld) - 0.1), pale)
+            let landing = mark.node(shadows: false)
+            landing.simdPosition = SIMD3(lot.x + Float(entry.x), HousePlan.storey + 0.03, lot.z + Float(entry.z))
+            ghost.addChildNode(landing)
+            let sign = HouseProps.sign(["Stairs"])
+            sign.enumerateHierarchy { node, _ in node.geometry?.materials.forEach { $0.lightingModel = .constant } }
+            sign.simdScale = SIMD3(repeating: 0.9)
+            sign.simdPosition = SIMD3(lot.x + Float(entry.x) + Float(lw) / 2, HousePlan.storey + 1.6, lot.z + Float(entry.z) + Float(ld) / 2)
+            sign.constraints = [SCNBillboardConstraint()]
+            sign.castsShadow = false
+            sign.renderingOrder = 95
+            ghost.addChildNode(sign)
+        }
         let body = batch.node(shadows: false)
         body.simdPosition = SIMD3(-W / 2, 0, -D / 2)
         let turned = SCNNode()
@@ -645,6 +833,21 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     }
 
     // MARK: Taps
+
+    /// A thing's been tapped: it jumps, and whoever's nearest comes over to it. A pet says its name.
+    func poke(_ kid: String, _ room: String, _ spot: String) {
+        let key = HouseCatalog.key(room, spot)
+        guard let b = built[kid], let thing = b.node.childNode(withName: "thing:\(key)", recursively: true), thing.action(forKey: "poke") == nil else { return }
+        let hop = SCNAction.sequence([.moveBy(x: 0, y: 0.18, z: 0, duration: 0.12), .moveBy(x: 0, y: -0.18, z: 0, duration: 0.14)])
+        hop.timingMode = .easeOut
+        let wiggle = SCNAction.sequence([.rotateBy(x: 0, y: 0.18, z: 0, duration: 0.08), .rotateBy(x: 0, y: -0.36, z: 0, duration: 0.12), .rotateBy(x: 0, y: 0.18, z: 0, duration: 0.08)])
+        thing.runAction(.group([hop, wiggle]), forKey: "poke")
+        if let found = HouseCatalog.room(room), let at = found.spot(spot), let item = b.shown.state.item(in: at, of: room), case .pet = item.look {
+            life.tag(b.shown.state.names[key] ?? item.name, over: thing, high: 1.1)
+        } else {
+            life.call(to: room, spot: spot)
+        }
+    }
 
     /// Where on a level of the town a point of the screen is.
     private func ground(_ point: CGPoint, in view: SCNView, y: Float) -> SIMD2<Float>? {
@@ -674,17 +877,20 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                 if parts.count == 4 { return .spot(parts[1], parts[2], parts[3]) }
             }
         }
-        if !lifted, decorating, held == nil, !picking, case .room(let kid, let room) = focus, mine?.kid == kid {
-            for found in view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.closest.rawValue]) {
-                var node: SCNNode? = found.node
-                while let n = node {
-                    if let name = n.name, name.hasPrefix("thing:") {
-                        let key = name.dropFirst(6).split(separator: ".").map(String.init)
-                        if key.count == 2, key[0] == room { return .spot(kid, room, key[1]) }
+        if !lifted, held == nil, !picking, opened != nil {
+            // One of the family, anywhere in the open house; or a thing in the room that's in focus.
+            if let found = view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.closest.rawValue]).first {
+                if let name = life.who(found.node) { return .person(name) }
+                if case .room(let kid, let room) = focus {
+                    var node: SCNNode? = found.node
+                    while let n = node {
+                        if let name = n.name, name.hasPrefix("thing:") {
+                            let key = name.dropFirst(6).split(separator: ".").map(String.init)
+                            if key.count == 2, key[0] == room { return .thing(kid, room, key[1]) }
+                        }
+                        node = n.parent
                     }
-                    node = n.parent
                 }
-                break
             }
         }
         if let kid = opened, let b = built[kid], let showing = b.showing,

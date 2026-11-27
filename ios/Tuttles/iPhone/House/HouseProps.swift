@@ -279,16 +279,6 @@ enum HouseProps {
         }
     }
 
-    /// A wall's inside face: its colour, with a skirting board along the bottom.
-    static func wallMaterial(_ a: String, _ b: String) -> SCNMaterial {
-        MathMat.drawn("house-wall-\(a)-\(b)", 256, 256) { c, size in
-            c.fill(a, CGRect(origin: .zero, size: size))
-            // The star chart's walls have stars; nothing else's second colour is that light.
-            if a == "101638" { for p in scatter(70, seed: 21) { disc(c, b, p.0 * size.width, p.1 * size.height * 0.9, 1 + p.2 * 2.5) } }
-            else { c.fill(b, CGRect(x: 0, y: size.height * 0.92, width: size.width, height: size.height * 0.08)) }
-        }
-    }
-
     // MARK: Rugs
 
     static func rug(_ pattern: String, _ a: String, _ b: String) -> SCNNode {
@@ -740,43 +730,6 @@ enum HouseProps {
         }
     }
 
-    /// A roof for one room, standing on its lid with its middle over the
-    /// origin: two slopes and a ridge running front to back, a pyramid, or a
-    /// flat slab.
-    static func roof(_ shape: String, _ material: SCNMaterial) -> SCNNode {
-        let S = HouseCatalog.side, high = peak(shape)
-        switch shape {
-        case "pyramid":
-            let g = SCNPyramid(width: CGFloat(S + 0.7), height: CGFloat(high), length: CGFloat(S + 0.7))
-            g.materials = [material]
-            return SCNNode(geometry: g)
-        case "flat":
-            let holder = SCNNode()
-            holder.add(MathShape.box(S + 0.8, high, S + 0.8, material), 0, high / 2, 0)
-            return holder
-        default:
-            let path = UIBezierPath()
-            let half = CGFloat(S / 2 + 0.35)
-            path.move(to: CGPoint(x: -half, y: 0))
-            path.addLine(to: CGPoint(x: half, y: 0))
-            path.addLine(to: CGPoint(x: 0, y: CGFloat(high)))
-            path.close()
-            let g = SCNShape(path: path, extrusionDepth: CGFloat(S + 0.6))
-            g.materials = [material]
-            return SCNNode(geometry: g)
-        }
-    }
-
-    /// How far up a roof's top is, this far across and back from its middle.
-    static func rise(_ shape: String, _ dx: Float, _ dz: Float) -> Float {
-        let half = HouseCatalog.side / 2 + 0.35, high = peak(shape)
-        switch shape {
-        case "flat": return high
-        case "pyramid": return max(0, high * (1 - max(abs(dx), abs(dz)) / half))
-        default: return max(0, high * (1 - abs(dx) / half))
-        }
-    }
-
     /// The front door, facing +z, standing on the origin: its frame, the door, and a knob. Or a round one.
     static func door(_ hex: String, round: Bool = false) -> SCNNode {
         let n = SCNNode()
@@ -978,64 +931,6 @@ enum HouseProps {
 
     // MARK: Stairs
 
-    /// A flight of stairs up the outside of a room, from its floor to the
-    /// one above (HouseLayout.Stairs): treads on two stringers, a landing at
-    /// the top beside the room above, a rail down the outer side, and posts
-    /// to the ground, which is `floor` storeys down. Placed where the room
-    /// under the top one stands. `right`, it's along that room's right side;
-    /// else along its front. Either way it climbs from the front of the lot
-    /// to the back, so the high end hides least.
-    static func stairs(right: Bool, floor: Int) -> SCNNode {
-        let S = HouseCatalog.side, H = HouseCatalog.height
-        let node = SCNNode()
-        node.name = "stairs"
-        let wood = MathMat.color("b98452"), dark = MathMat.color("8a5a3a"), rail = MathMat.color("f6f1e4")
-        // `a` along the side from the back of the room, `o` out from its edge.
-        func put(_ box: SCNNode, _ a: Float, _ y: Float, _ o: Float) {
-            node.add(box, right ? S + o : a, y, right ? a : S + o)
-        }
-        // A box `along` the flight, `out` across it.
-        func box(_ along: Float, _ h: Float, _ out: Float, _ m: SCNMaterial) -> SCNNode {
-            right ? MathShape.box(out, h, along, m) : MathShape.box(along, h, out, m)
-        }
-        // Tipped up the flight: the back end high.
-        func tipped(_ box: SCNNode, by angle: Float) -> SCNNode {
-            if right { box.eulerAngles.x = angle } else { box.eulerAngles.z = -angle }
-            return box
-        }
-        let inner: Float = 0.35, outer: Float = 1.35, steps = 10
-        let landing: Float = 1.2, bottom = S - 0.1
-        let rise = H / Float(steps), run = (bottom - landing) / Float(steps)
-        // The landing, in to the room's own edge.
-        put(box(landing, 0.14, outer, wood), landing / 2, H - 0.07, outer / 2)
-        for i in 0..<(steps - 1) {
-            put(box(run + 0.04, 0.1, outer - inner, wood), bottom - (Float(i) + 0.5) * run, Float(i + 1) * rise - 0.05, (inner + outer) / 2)
-        }
-        let length = hypot(bottom - landing, H), angle = atan2(H, bottom - landing)
-        let mid = (bottom + landing) / 2
-        for o in [inner + 0.06, outer - 0.06] {
-            put(tipped(box(length, 0.26, 0.1, dark), by: angle), mid, H / 2 - 0.2, o)
-        }
-        // A rail down the outer side and round the landing, on posts.
-        let high: Float = 0.95
-        put(tipped(box(length, 0.08, 0.08, rail), by: angle), mid, H / 2 + high, outer - 0.06)
-        put(box(landing, 0.08, 0.08, rail), landing / 2, H + high, outer - 0.06)
-        put(box(0.08, 0.08, outer, rail), 0.04, H + high, outer / 2)
-        for (a, y) in [(bottom, Float(0)), (mid, H / 2), (landing, H), (0.04, H)] {
-            put(box(0.08, high, 0.08, rail), a, y + high / 2, outer - 0.06)
-        }
-        put(box(0.08, high, 0.08, rail), 0.04, H + high / 2, 0.04)
-        // Legs under the landing's outer corners, down to the ground; and, started from an upper floor, under its foot.
-        let down = Float(floor) * H
-        for a in [0.1, landing - 0.1] {
-            put(box(0.12, H + down - 0.14, 0.12, dark), a, (H - 0.14 - down) / 2, outer - 0.1)
-        }
-        if floor > 0 {
-            for o in [inner + 0.06, outer - 0.06] { put(box(0.12, down, 0.12, dark), bottom - 0.1, -down / 2, o) }
-        }
-        return node
-    }
-
     /// How a spot's marker looks: nothing chosen for it yet, something in it, or the one the card's up for.
     enum Marker: String {
         case empty, filled, chosen
@@ -1137,7 +1032,8 @@ extension HouseSpot {
         case .fabric: return "swatchpalette.fill"
         case .outside:
             return ["roof": "house.fill", "shape": "triangle.fill", "walls": "paintbrush.fill", "door": "door.left.hand.closed",
-                    "top": "flag.fill", "lawn": "leaf.fill"][id] ?? "plus"
+                    "top": "flag.fill", "lawn": "leaf.fill", "porch": "house.lodge.fill", "windows": "window.casement", "beds": "camera.macro",
+                    "fence": "square.split.bottomrightquarter", "kerb": "road.lanes", "garden": "drop.fill", "doors": "door.left.hand.open"][id] ?? "plus"
         case .floor, .against: break
         }
         return [
@@ -1150,6 +1046,18 @@ extension HouseSpot {
             "fridge": "refrigerator.fill", "stove": "stove.fill", "sink": "sink.fill",
             "bath": "bathtub.fill", "toilet": "toilet.fill", "washer": "washer.fill",
             "boxes": "shippingbox.fill", "scope": "binoculars.fill",
+            "machine1": "gamecontroller.fill", "machine2": "gamecontroller.fill", "machine3": "gamecontroller.fill", "machine4": "gamecontroller.fill",
+            "play": "gamecontroller.fill", "rig": "steeringwheel", "game": "gamecontroller.fill", "seats": "sofa.fill", "back": "sofa.fill",
+            "snacks": "popcorn.fill", "screen": "tv.fill", "projector": "videoprojector.fill", "piano": "pianokeys", "drums": "music.note",
+            "guitar": "guitars.fill", "mic": "music.mic", "player": "music.note.list", "shelves": "books.vertical.fill", "shelves2": "books.vertical.fill",
+            "fire": "flame.fill", "nook": "book.fill", "stack": "books.vertical.fill", "project": "wrench.and.screwdriver.fill", "printer": "cube.fill",
+            "chest": "shippingbox.fill", "treasure": "shippingbox.fill", "armor": "shield.fill", "case": "books.vertical.fill",
+            "pool": "figure.pool.swim", "float": "lifepreserver.fill", "slide": "water.waves", "lounger": "chair.lounge.fill", "parasol": "umbrella.fill",
+            "deck": "square.grid.3x1.below.line.grid.1x2.fill", "grill": "flame.fill", "shade": "umbrella.fill", "treehouse": "tree.fill", "foot": "leaf.fill",
+            "trampoline": "figure.jumprope", "swings": "figure.play", "sand": "figure.play", "diamond": "baseball.fill", "stands": "person.3.fill",
+            "dugout": "person.3.fill", "board": "number.square.fill", "mound": "baseball.fill", "court": "basketball.fill", "rack": "basketball.fill",
+            "vegpatch": "carrot.fill", "skatepark": "square.fill", "ramp": "skateboard.fill", "rail": "skateboard.fill",
+            "driveway": "road.lanes", "car": "car.fill", "cone": "cone.fill", "tent": "tent.fill",
         // A corner takes all sorts: just a plus.
         ][id] ?? "plus"
     }

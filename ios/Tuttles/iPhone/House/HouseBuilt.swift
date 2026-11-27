@@ -17,9 +17,19 @@ struct HouseOutside {
     /// What the walls are clad in; nil, each room its own colour.
     var cladding: (pattern: String, a: String, b: String)?
     var door = (color: "b5483b", round: false)
+    /// The fence round the land: its style and colour.
+    var fence = (style: "picket", color: "f6f1e4")
     /// What's on the roof and on the lawn (a thing built in code), if anything.
     var top: String?
     var lawn: String?
+    /// A porch at the front door, what's planted under the front windows, what's by the road and in the front garden.
+    var porch: String?
+    var beds: String?
+    var kerb: String?
+    var garden: String?
+    /// How the windows are made ("plain", "grid", "shutters", "boxes"), and which door the rooms indoors have.
+    var windows = "plain"
+    var doors = "Door_1"
 
     init(_ state: HouseState) {
         let outside = HouseCatalog.outside
@@ -30,7 +40,17 @@ struct HouseOutside {
             case .roofShape(let name): shape = name
             case .cladding(let pattern, let a, let b): cladding = pattern == "rooms" ? nil : (pattern, a, b)
             case .door(let hex, let round): door = (hex, round)
-            case .made(let key): if spot.id == "top" { top = key } else { lawn = key }
+            case .made(let key):
+                switch spot.id {
+                case "top": top = key
+                case "porch": porch = key
+                case "beds": beds = key
+                case "kerb": kerb = key
+                case "garden": garden = key
+                default: lawn = key
+                }
+            case .fence(let style, let hex): fence = (style, hex)
+            case .style(let name): if spot.id == "doors" { doors = name } else { windows = name }
             default: break
             }
         }
@@ -67,6 +87,16 @@ final class HouseBuilt {
     private var hung: [(node: SCNNode, floor: Int, edge: HousePlan.Edge)] = []
     /// Whoever lives there.
     private(set) var people: [MathCharacter] = []
+    /// Something standing in a room or out in the yard: which spot's, what, where on the lot (its floor's height
+    /// included) and which way its front faces (0: south).
+    struct Thing {
+        let room: String
+        let spot: String
+        let item: HouseItem
+        let at: SIMD3<Float>
+        let facing: Float
+    }
+    private(set) var things: [Thing] = []
     /// The floor in view when it's open; nil when it's shut.
     private(set) var showing: Int?
 
@@ -89,6 +119,7 @@ final class HouseBuilt {
             for spot in found.spots {
                 switch state.item(in: spot, of: room)?.look {
                 case .paint(let a, let b): (look.paint, look.skirting) = (a, b)
+                case .paper(let pattern, let a, let b, let skirting): (look.paint, look.skirting, look.paper) = (a, skirting, [pattern, a, b])
                 case .flooring(let pattern, let a, let b): look.flooring = [pattern, a, b]
                 default: break
                 }
@@ -115,6 +146,7 @@ final class HouseBuilt {
         roof()
         node.addChildNode(top)
         grounds()
+        for (room, p) in all where HouseLayout.yard(room) { yard.addChildNode(self.room(room, p, marked: marked?.room == room ? marked : nil)) }
         node.addChildNode(yard)
         for look in [shown.look] + (shown.partner.map { [$0] } ?? []) {
             let who = MathCharacter(look: look, height: 1.45)
@@ -135,7 +167,10 @@ final class HouseBuilt {
 
     var radius: Float { simd_length(reach.hi - reach.lo) / 2 }
 
-    private var reach: (lo: SIMD2<Float>, hi: SIMD2<Float>) {
+    private var reach: (lo: SIMD2<Float>, hi: SIMD2<Float>) { Self.reach(of: all) }
+
+    /// The corners of everything above ground in a house, on its lot, from where its rooms and yard things stand.
+    static func reach(of all: [String: HousePlot]) -> (lo: SIMD2<Float>, hi: SIMD2<Float>) {
         var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
         for (room, p) in all where p.floor >= 0 {
             let (w, d) = HouseLayout.size(room, p)
@@ -162,7 +197,7 @@ final class HouseBuilt {
     var floors: [Int] { plan.numbers }
 
     /// A point of a room as it's drawn (metres from its north-west corner), on the lot.
-    private func point(_ room: String, _ x: Float, _ z: Float) -> SIMD2<Float> {
+    func point(_ room: String, _ x: Float, _ z: Float) -> SIMD2<Float> {
         guard let p = all[room] else { return .zero }
         let s = HouseLayout.shape(room)
         var (px, pz, d) = (x, z, Float(s.depth))
@@ -184,13 +219,15 @@ final class HouseBuilt {
 
     // MARK: A floor
 
-    private func paint(_ room: Character?) -> SCNMaterial {
-        HouseLook.paint(room.flatMap { plan.rooms[$0]?.paint } ?? "e7e3d8")
+    private func paint(_ room: Character?, outdoors: Bool = false) -> SCNMaterial {
+        // (Paper's for indoors: outside, a papered room shows the paper's own colour.)
+        if !outdoors, let p = room.flatMap({ plan.rooms[$0]?.paper }), p.count == 3 { return HouseLook.paper(p[0], p[1], p[2]) }
+        return HouseLook.paint(room.flatMap { plan.rooms[$0]?.paint } ?? "e7e3d8")
     }
 
     /// What the house is clad in outside, on a wall of this room: the cladding chosen, or the room's own colour.
     private func cladding(of room: Character?) -> SCNMaterial {
-        guard let c = outside.cladding else { return paint(room) }
+        guard let c = outside.cladding else { return paint(room, outdoors: true) }
         return HouseLook.clad(c.pattern, c.a, c.b)
     }
 
@@ -234,7 +271,7 @@ final class HouseBuilt {
                 leaf.simdEulerAngles.y = atan2(way.x, way.y)
                 leaf.simdPosition = SIMD3(x + (edge.across ? 0.5 : 0) + way.x * half, 0, z + (edge.across ? 0 : 0.5) + way.y * half)
             } else {
-                leaf = HouseKit.fitting("Door_1")
+                leaf = HouseKit.fitting(outside.doors)
                 leaf.simdPosition = edge.across ? SIMD3(x + 0.5, 0, z) : SIMD3(x, 0, z + 0.5)
                 if !edge.across { leaf.simdEulerAngles.y = .pi / 2 }
                 if edge.across {
@@ -251,7 +288,8 @@ final class HouseBuilt {
         }
         storey.addChildNode(frame.node())
 
-        for (room, p) in all where p.floor == f { inside.addChildNode(self.room(room, p, marked: marked?.room == room ? marked : nil)) }
+        // (What's out in the yard is the yard's: it's there whether the house is open or shut.)
+        for (room, p) in all where p.floor == f && !HouseLayout.yard(room) { inside.addChildNode(self.room(room, p, marked: marked?.room == room ? marked : nil)) }
 
         // The stairs: up from the hall once there's a landing, and down under them to a basement.
         if let hall = all[HouseLayout.hall] {
@@ -281,7 +319,7 @@ final class HouseBuilt {
 
     /// A room's colours for what's in it: its wood and its cloth, and whether the lamps are on.
     private func finish(_ room: HouseRoom) -> HouseFinish {
-        var finish = HouseFinish(lit: sky.lit)
+        var finish = HouseFinish(lit: sky.lit, feats: shown.state.feats)
         for spot in room.spots {
             switch shown.state.item(in: spot, of: room.id)?.look {
             case .wood(let main, let dark, let glow): (finish.wood, finish.woodDark, finish.woodGlow) = (main, dark, glow)
@@ -308,10 +346,12 @@ final class HouseBuilt {
             // The room's wood and its cloth aren't anywhere in it: they're on everything.
             if spot.place == .wood || spot.place == .fabric { continue }
             let item = shown.state.item(in: spot, of: id)
+            // (On a deck, everything but the deck stands on its boards.)
+            let lift = spot.id == id ? 0 : shape.lift
             var at = SIMD3<Float>(0, 0, 0), ry: Float = 0, bubble = SIMD3<Float>(0, 0.75, 0)
             var onWall: HouseWall?
             switch spot.place {
-            case .floor(let x, let z, let turns): (at, ry, bubble) = (SIMD3(x * sx, 0, z * sz), Float(turns) * .pi / 2, SIMD3(x * sx, 1.5, z * sz))
+            case .floor(let x, let z, let turns): (at, ry, bubble) = (SIMD3(x * sx, lift, z * sz), Float(turns) * .pi / 2, SIMD3(x * sx, 1.5, z * sz))
             case .rug(let x, let z): (at, bubble) = (SIMD3(x * sx, 0.004, z * sz), SIMD3(x * sx + 0.7, 0.35, z * sz + 0.7))
             case .wall(let left, let along, let y):
                 let h = min(y, H - 0.5)
@@ -343,7 +383,21 @@ final class HouseBuilt {
                 thing.simdPosition = at
                 thing.simdEulerAngles.y = ry
                 holder.addChildNode(thing)
+                switch spot.place {
+                case .floor, .against:
+                    let on = point(id, at.x, at.z)
+                    things.append(Thing(room: id, spot: spot.id, item: item, at: SIMD3(on.x, Float(p.floor) * HousePlan.storey + at.y, on.y), facing: ry - Float(p.turn) * .pi / 2))
+                default: break
+                }
                 if let onWall, !shape.outdoor { hung.append((thing, p.floor, HouseLayout.edge(id, p, onWall))) }
+                if case .ceiling = spot.place, !shape.outdoor {
+                    // A round of the ceiling it hangs from, so it isn't hanging from nothing.
+                    let rose = SCNNode(geometry: SCNCylinder(radius: 0.5, height: 0.03))
+                    rose.geometry?.materials = [HouseLook.ceiling]
+                    rose.simdPosition = at + SIMD3(0, 0.035, 0)
+                    rose.castsShadow = false
+                    holder.addChildNode(rose)
+                }
             }
             // A marker on each spot, while the card for changing them is up.
             if let marked {
@@ -360,8 +414,23 @@ final class HouseBuilt {
         return turned(id, p, holding: holder)
     }
 
+    /// The way up the stairs: the foot of the flight in the hall and the head of it on the landing, on the lot.
+    var flightPath: (foot: SIMD3<Float>, head: SIMD3<Float>)? {
+        guard all[HouseLayout.hall] != nil else { return nil }
+        let middle = (stairs.west + stairs.east) / 2
+        let foot = point(HouseLayout.hall, middle, stairs.foot + 0.3), head = point(HouseLayout.hall, middle, stairs.head - 0.2)
+        return (SIMD3(foot.x, 0, foot.y), SIMD3(head.x, HousePlan.storey, head.y))
+    }
+
+    /// Just inside the front door and just outside it, on the lot.
+    var step: (inside: SIMD3<Float>, outside: SIMD3<Float>)? {
+        guard let door = frontDoor else { return nil }
+        let a = door.at - door.out * 0.6, b = door.at + door.out * 1.3
+        return (SIMD3(a.x, 0, a.y), SIMD3(b.x, 0, b.y))
+    }
+
     /// Where whoever lives there stands in a room, on the lot; or, with no room, on the front step.
-    private func stand(in room: String?) -> SIMD3<Float> {
+    func stand(in room: String?) -> SIMD3<Float> {
         if let room, let found = HouseCatalog.room(room), let p = all[room], found.stand.count == 2 {
             let (sx, sz) = HouseLayout.shape(room).stretch
             let at = point(room, found.stand[0] * sx, found.stand[1] * sz)
@@ -497,6 +566,32 @@ final class HouseBuilt {
                 let mid = (sill + top) / 2
                 slab(mid - 0.015, mid + 0.015, -0.02, 0.02, HouseLook.trim, along: (w, 1 - w))
                 slab(sill + w, top - w, -0.005, 0.005, glass, along: (w, 1 - w))
+                // How they've chosen to have their windows. (Outdoors is whichever side of the wall has no room on it.)
+                let out: Float = floor.indoor(a) ? 1 : -1
+                func outdoors(_ y0: Float, _ y1: Float, _ from: Float, _ to: Float, _ m: SCNMaterial, along: (Float, Float)) {
+                    slab(y0, y1, min(out * from, out * to), max(out * from, out * to), m, along: along)
+                }
+                switch outside.windows {
+                case "grid":
+                    let thirds: [Float] = [1.0 / 3, 2.0 / 3]
+                    for k in thirds {
+                        slab(sill + w, top - w, -0.02, 0.02, HouseLook.trim, along: (k - 0.012, k + 0.012))
+                        let y = sill + (top - sill) * k
+                        if abs(y - mid) > 0.05 { slab(y - 0.012, y + 0.012, -0.02, 0.02, HouseLook.trim, along: (w, 1 - w)) }
+                    }
+                case "shutters":
+                    let paint = HouseLook.plain(HouseLook.color(outside.door.color), rough: 0.6)
+                    outdoors(sill - 0.02, top + 0.02, half, half + 0.04, paint, along: (-0.3, -0.02))
+                    outdoors(sill - 0.02, top + 0.02, half, half + 0.04, paint, along: (1.02, 1.3))
+                case "boxes":
+                    outdoors(sill - 0.24, sill - 0.04, half, half + 0.22, HouseLook.plain(HouseLook.color("b5654a"), rough: 0.8), along: (0.04, 0.96))
+                    outdoors(sill - 0.06, sill + 0.03, half + 0.02, half + 0.2, HouseLook.plain(HouseLook.color("4f8a3c"), rough: 0.8), along: (0.07, 0.93))
+                    for (i, hex) in ["e8413c", "f7d04a", "f08ab0", "e8413c", "ffffff"].enumerated() {
+                        let k = 0.14 + Float(i) * 0.18
+                        outdoors(sill + 0.02, sill + 0.11, half + 0.06, half + 0.16, HouseLook.plain(HouseLook.color(hex), rough: 0.7), along: (k - 0.05, k + 0.05))
+                    }
+                default: break
+                }
             }
             // Both ends of it are corners.
             let grounded: Bool = { if case .door = opening { return false }; if case .arch = opening { return false }; return true }()
@@ -557,8 +652,10 @@ final class HouseBuilt {
     /// height that part stands to, in the shape and colour chosen. Each
     /// slope rises from the eaves by how far in from them it is.
     private func roof() {
-        let material = HouseLook.plain(HouseLook.color(outside.roof), rough: 0.8)
-        if outside.roofGlow > 0 {
+        // (In December there's snow on it.)
+        let snowy = HouseSeason.now == .winter
+        let material = HouseLook.plain(snowy ? HouseBuilt.mix(HouseLook.color(outside.roof), .white, 0.8) : HouseLook.color(outside.roof), rough: 0.8)
+        if outside.roofGlow > 0, !snowy {
             material.emission.contents = HouseLook.color(outside.roof)
             material.emission.intensity = CGFloat(outside.roofGlow) * 2
         }
@@ -661,6 +758,15 @@ final class HouseBuilt {
         top.addChildNode(sign)
     }
 
+    /// One colour part of the way to another.
+    static func mix(_ a: UIColor, _ b: UIColor, _ t: CGFloat) -> UIColor {
+        var (r0, g0, b0, a0): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        var (r1, g1, b1, a1): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        a.getRed(&r0, green: &g0, blue: &b0, alpha: &a0)
+        b.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        return UIColor(red: r0 + (r1 - r0) * t, green: g0 + (g1 - g0) * t, blue: b0 + (b1 - b0) * t, alpha: 1)
+    }
+
     /// A material seen from both sides: a roof's slopes, from under the eaves.
     private func two(_ m: SCNMaterial) -> SCNMaterial {
         let made = m.copy() as! SCNMaterial
@@ -671,12 +777,23 @@ final class HouseBuilt {
     // MARK: The garden round it
 
     private func grounds() {
-        let fence = HouseLand.fence()
+        let north = Float(HouseLayout.north(field: shown.state.field))
+        let fence = HouseLand.fence(north: north, style: outside.fence.style, hex: outside.fence.color)
         HouseLook.physical(fence)
         yard.addChildNode(fence)
-        let trees = HouseLand.garden(clear: { x, z in
-            // Nothing within a couple of metres of the house.
-            for dx in -2...2 { for dz in -2...2 where self.plan.floor(0)?.room(Int(x) + dx, Int(z) + dz) != nil { return false } }
+        if shown.state.field {
+            // The back field, mown now it's theirs.
+            let mown = SCNNode(geometry: SCNPlane(width: CGFloat(lot.wide), height: CGFloat(lot.back)))
+            mown.geometry?.materials = [HouseLook.plain(HouseLook.color("9ad374").shaded(0.78), rough: 0.95)]
+            mown.simdEulerAngles.x = -.pi / 2
+            mown.simdPosition = SIMD3(lot.wide / 2, HouseTown.lawnHeight, lot.back / 2)
+            mown.castsShadow = false
+            yard.addChildNode(mown)
+        }
+        let taken = Set(all.filter { $0.value.floor == 0 }.flatMap { HouseLayout.cells($0.key, $0.value) })
+        let trees = HouseLand.garden(north: north, clear: { x, z in
+            // Nothing within a couple of metres of the house, or of anything in the yard.
+            for dx in -2...2 { for dz in -2...2 where taken.contains(HouseCell(x: Int(x) + dx, z: Int(z) + dz)) { return false } }
             return true
         }, seed: shown.kid)
         HouseLook.physical(trees)
@@ -697,22 +814,70 @@ final class HouseBuilt {
         path.castsShadow = false
         yard.addChildNode(path)
         // What they've put on the lawn, off to one side of the door.
-        if let key = outside.lawn {
+        let lawnAt = door.at + door.out * 2.6 + SIMD2(door.out.y, -door.out.x) * 2.6
+        if let key = outside.lawn, !taken.contains(HouseCell(x: Int(lawnAt.x.rounded(.down)), z: Int(lawnAt.y.rounded(.down)))) {
             let thing = HouseProps.lawn(key)
             thing.name = "thing:outside.lawn"
             HouseLook.physical(thing)
             let side = SIMD2(door.out.y, -door.out.x)
-            let at = door.at + door.out * 2.6 + side * 2.4
+            let at = door.at + door.out * 2.6 + side * 2.6
             thing.simdPosition = SIMD3(at.x, 0, at.y)
             thing.simdEulerAngles.y = atan2(door.out.x, door.out.y)
             yard.addChildNode(thing)
+        }
+        // What they've put round the front of the house: a porch at the door, beds under the windows either
+        // side of it, something by the road and something in the front garden. And what the time of year puts out.
+        let side = SIMD2(door.out.y, -door.out.x), facing = atan2(door.out.x, door.out.y)
+        let half = HousePlan.thickness / 2
+        func put(_ key: String?, _ spot: String?, _ at: SIMD2<Float>, y: Float = 0) {
+            // (Not where something's since been built: a room, or a thing of the yard.)
+            if y == 0, taken.contains(HouseCell(x: Int(at.x.rounded(.down)), z: Int(at.y.rounded(.down)))) { return }
+            guard let key, let thing = HouseStreetProps.made(key) else { return }
+            if let spot { thing.name = "thing:outside.\(spot)" }
+            HouseLook.physical(thing)
+            thing.simdPosition = SIMD3(at.x, y, at.y)
+            thing.simdEulerAngles.y = facing
+            yard.addChildNode(thing)
+        }
+        put(outside.porch, "porch", door.at + door.out * half)
+        for s: Float in [-1, 1] {
+            // Only where there's a wall of the house behind it.
+            let at = door.at + side * s * 2.3 + door.out * 0.42, behind = at - door.out * 0.9
+            guard let ground = plan.floor(0), ground.indoor(ground.room(Int(behind.x.rounded(.down)), Int(behind.y.rounded(.down)))) else { continue }
+            put(outside.beds, "beds", at, y: -0.02)
+        }
+        var kerb = door.at + door.out * 4.5 - side * 2.2
+        if door.out.y > 0.5 { kerb = SIMD2(door.at.x + 2.4, max(door.at.y + 2.5, lot.frontZ(at: lot.x + door.at.x) - lot.z - 1.3)) }
+        put(outside.kerb, "kerb", kerb)
+        put(outside.garden, "garden", door.at + door.out * 2.8 - side * 2.6)
+        switch HouseSeason.now {
+        case .winter:
+            put("eave-lights", nil, door.at + door.out * (half + 0.06), y: 2.6)
+            put("door-wreath", nil, door.at + door.out * (half + 0.1), y: 1.6)
+            put("snow-drift", nil, door.at + door.out * 1.6 + side * 1.9)
+            put("snow-drift", nil, door.at + door.out * 3.6 - side * 4.2)
+            put("gift-pile", nil, door.at + door.out * 0.9 - side * 1.25)
+            if shown.kid == HouseTown.parentsID {
+                // Mom & Dad's has a tree out, and a snowman.
+                let out: [(String, Float, SIMD2<Float>)] = [("tree-decorated-snow", 1.5, door.at + door.out * 6.6 - side * 3.0), ("snowman-hat", 1.2, door.at + door.out * 3.2 - side * 4.4)]
+                for (name, grown, at) in out where !taken.contains(HouseCell(x: Int(at.x.rounded(.down)), z: Int(at.y.rounded(.down)))) {
+                    let model = HouseProps.kit(name, folder: "holiday", scale: grown)
+                    HouseLook.physical(model)
+                    model.simdPosition = SIMD3(at.x, 0, at.y)
+                    model.simdEulerAngles.y = facing
+                    yard.addChildNode(model)
+                }
+            }
+        case .halloween:
+            put("pumpkins", nil, door.at + door.out * 0.9 - side * 1.25)
+        case .plain:
+            break
         }
         // A lantern by the door, after dark.
         if sky.lit {
             let lamp = HouseProps.porchLight()
             HouseLook.physical(lamp)
             lamp.enumerateHierarchy { n, _ in if let l = n.light { l.intensity = 7; l.attenuationEndDistance = 5 } }
-            let side = SIMD2(door.out.y, -door.out.x)
             let at = door.at + side * 0.85 + door.out * 0.08
             lamp.simdPosition = SIMD3(at.x, 1.9, at.y)
             lamp.simdEulerAngles.y = atan2(door.out.x, door.out.y)
@@ -729,6 +894,8 @@ final class HouseBuilt {
     func present(floor: Int?, view: HouseVantage, focus: String?, animated: Bool) {
         showing = floor
         let letter = focus.map { HouseLayout.shape($0).letter }
+        // Looking at something in the yard, every wall of the house is down, so it's not hidden behind one.
+        let view = focus.map(HouseLayout.yard) == true && view != .shut ? HouseVantage.flat : view
         for f in plan.numbers {
             var want: Standing?
             var contents = false, lidded = false
@@ -743,18 +910,25 @@ final class HouseBuilt {
             insides[f]?.isHidden = !contents
             lids[f]?.isHidden = !lidded
             guard want != standing[f] else { continue }
+            // Walls that aren't standing now are hidden, never taken out of the house. (They were once faded
+            // and then removed by the fade itself, which runs on the renderer's thread: dragged about fast,
+            // that could take a wall out at the moment this was putting it back, and it crashed.)
             if let was = standing[f], let old = walls[f]?[was] {
-                if animated { old.runAction(.sequence([.fadeOut(duration: 0.18), .removeFromParentNode()])) } else { old.removeFromParentNode() }
+                old.removeAllActions()
+                if animated { old.runAction(.sequence([.fadeOut(duration: 0.18), .hide()])) } else { old.isHidden = true }
             }
             if let want {
                 let made = walls[f]?[want] ?? wallsNode(f, want)
                 walls[f, default: [:]][want] = made
                 made.removeAllActions()
                 made.simdPosition.y = Float(f) * HousePlan.storey
+                made.isHidden = false
                 made.opacity = animated ? 0 : 1
                 if made.parent == nil { node.addChildNode(made) }
                 if animated { made.runAction(.fadeIn(duration: 0.18)) }
             }
+            // (With no fade, anything still on its way out is put away at once.)
+            if !animated { for (how, other) in walls[f] ?? [:] where how != want { other.removeAllActions(); other.isHidden = true } }
             standing[f] = want
         }
         top.isHidden = floor != nil
@@ -777,10 +951,15 @@ final class HouseBuilt {
                 else if all["kitchen"] != nil, home != "kitchen" { at = stand(in: "kitchen") }
                 else { seen = false }
             }
-            let onFloor = Int((at.y / HousePlan.storey).rounded())
             who.node.simdPosition = at
-            who.node.isHidden = !seen || (floor != nil && onFloor != floor)
+            // (With the house open, it's the family that's about in it: HouseLife.)
+            who.node.isHidden = !seen || floor != nil
         }
+    }
+
+    /// For the tests: every way a floor's walls have stood so far, and which is standing now.
+    func wallNodes(floor f: Int) -> (all: [SCNNode], standing: SCNNode?) {
+        (Array((walls[f] ?? [:]).values), standing[f].flatMap { walls[f]?[$0] })
     }
 
     /// Turn whoever lives there to face where they're looked at from.

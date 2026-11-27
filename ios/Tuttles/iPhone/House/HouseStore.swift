@@ -44,11 +44,23 @@ struct HouseState: Codable, Equatable {
     /// rooms: [across, floor, back]. Kept as it was, for a phone that hasn't
     /// been updated; nothing here reads it.
     var cells: [String: [Int]] = [HouseCatalog.first: [0, 0, 0]]
-    /// Where each of their rooms stands, and the hall (HouseLayout.swift): [x, z, floor, turn].
-    var plots: [String: [Int]] = HouseState.settled([HouseCatalog.first], from: [:])
+    /// Where each of their rooms stands, and the hall, and what's in the yard (HouseLayout.swift): [x, z, floor, turn].
+    var plots: [String: [Int]] = HouseState.settled([HouseCatalog.first], from: [:], field: false)
+    /// How much land is theirs: 0 the lot, 1 the back field too.
+    var land = 0
+    /// How `plots` is measured: 2, from the north-west corner of all the land a
+    /// house can have. (Before there was a back field it was from the lot's own
+    /// corner, `HouseLayout.back` metres further south; a house kept that way has no `grid`.)
+    var grid = HouseState.grid
+    /// What they've called their pets, by the pet's spot ("bedroom.pet").
+    var names: [String: String] = [:]
+    /// What they've done in the games, for the shelf that shows it (HouseEarned.swift): "words" known by
+    /// heart in Vocab, "mathDays" the goal's been reached in Math, "streak" the days in a row.
+    var feats: [String: Int] = [:]
 
     /// The economy of 2026-11-26: coins about a tenth of what they were, no back pay.
     static let economy = 2
+    static let grid = 2
 
     init() {}
 
@@ -66,13 +78,25 @@ struct HouseState: Codable, Equatable {
         days = (try? c.decode([Paid].self, forKey: .days)) ?? []
         economy = (try? c.decode(Int.self, forKey: .economy)) ?? 1
         cells = (try? c.decode([String: [Int]].self, forKey: .cells)) ?? [HouseCatalog.first: [0, 0, 0]]
+        land = (try? c.decode(Int.self, forKey: .land)) ?? 0
+        names = (try? c.decode([String: String].self, forKey: .names)) ?? [:]
+        feats = (try? c.decode([String: Int].self, forKey: .feats)) ?? [:]
+        var kept = (try? c.decode([String: [Int]].self, forKey: .plots)) ?? [:]
+        // A house from before the back field: everything's that much further south on the land now.
+        if ((try? c.decode(Int.self, forKey: .grid)) ?? 1) < HouseState.grid {
+            kept = kept.mapValues { $0.count == 4 ? [$0[0], $0[1] + HouseLayout.back, $0[2], $0[3]] : $0 }
+        }
+        grid = HouseState.grid
         // A house from before rooms had sizes, or one that's got muddled, gets them put somewhere that holds together.
-        plots = HouseState.settled(rooms, from: (try? c.decode([String: [Int]].self, forKey: .plots)) ?? [:])
+        plots = HouseState.settled(rooms, from: kept, field: land > 0)
     }
 
-    private static func settled(_ rooms: [String], from kept: [String: [Int]]) -> [String: [Int]] {
-        HouseLayout.settle(rooms, from: kept.compactMapValues { HousePlot($0) }).mapValues(\.kept)
+    private static func settled(_ rooms: [String], from kept: [String: [Int]], field: Bool) -> [String: [Int]] {
+        HouseLayout.settle(rooms, from: kept.compactMapValues { HousePlot($0) }, field: field).mapValues(\.kept)
     }
+
+    /// The back field's theirs.
+    var field: Bool { land > 0 }
 
     // MARK: Reading it
 
@@ -91,14 +115,36 @@ struct HouseState: Codable, Equatable {
     /// Somewhere a room could go to start with: one to buy, or one of theirs to move.
     func place(for room: String) -> HousePlot? {
         if let p = plot(of: room) { return p }
-        return HouseLayout.place(for: room, in: layout.filter { $0.key != HouseLayout.landing })
+        return HouseLayout.place(for: room, in: layout.filter { $0.key != HouseLayout.landing }, field: field)
+    }
+
+    /// With a room put there, a door of its that would be behind something: whose things, if it's the
+    /// other room's (nil: its own). Nil if every door of its is clear, or it's somewhere it can't go.
+    func blockedDoor(putting room: String, at p: HousePlot) -> (blocked: Bool, by: String?) {
+        var trial = plots.compactMapValues { HousePlot($0) }
+        trial[room] = p
+        let all = HouseLayout.standing(rooms.contains(room) || HouseLayout.fixture(room) ? rooms : rooms + [room], trial)
+        guard HouseLayout.problem(all, field: field) == nil else { return (false, nil) }
+        let own = Set(HouseLayout.doors(of: room).map { HouseLayout.edge(room, p, $0) })
+        for way in HouseLayout.doorways(all, floor: p.floor) where !way.clear && (way.a == room || way.b == room) {
+            return (true, own.contains(way.edge) ? (way.a == room ? way.b : way.a) : nil)
+        }
+        return (false, nil)
+    }
+
+    /// The nearest place to where a room's being held that it could go on a floor, if there is one.
+    func place(for room: String, on floor: Int, near: HousePlot) -> HousePlot? {
+        var others = layout.filter { $0.key != HouseLayout.landing && $0.key != room }
+        // (With that room out of it, there may be nothing upstairs any more.)
+        others = HouseLayout.standing(Array(others.keys), others).filter { $0.key != HouseLayout.landing }
+        return HouseLayout.place(for: room, in: others, field: field, on: floor, near: near)
     }
 
     /// What would be wrong with the house with a room put there (one of theirs moved, or one being bought).
     func problem(putting room: String, at p: HousePlot) -> HouseLayout.Problem? {
         var trial = plots.compactMapValues { HousePlot($0) }
         trial[room] = p
-        return HouseLayout.problem(HouseLayout.standing(rooms.contains(room) || HouseLayout.fixture(room) ? rooms : rooms + [room], trial))
+        return HouseLayout.problem(HouseLayout.standing(rooms.contains(room) || HouseLayout.fixture(room) ? rooms : rooms + [room], trial), field: field)
     }
 
     func owns(_ item: HouseItem) -> Bool { item.free || owned.contains(item.id) }
@@ -129,7 +175,7 @@ struct HouseState: Codable, Equatable {
     /// Spots with something in them, over all the spots of the rooms they have: how furnished it is.
     var filled: (Int, Int) {
         var have = 0, of = 0
-        for room in HouseCatalog.rooms where has(room: room.id) {
+        for room in HouseCatalog.everything where has(room: room.id) {
             for spot in room.spots where spot.starter == nil {
                 of += 1
                 if item(in: spot, of: room.id) != nil { have += 1 }
@@ -138,11 +184,12 @@ struct HouseState: Codable, Equatable {
         return (have, of)
     }
 
-    /// Rooms bought with coins, the first included.
-    var coinRooms: Int { rooms.filter { HouseCatalog.room($0)?.gems == 0 }.count }
+    /// Rooms bought with coins at the going rate, the first included. (Not what has a price of its own: the yard's things.)
+    var coinRooms: Int { rooms.filter { HouseCatalog.room($0).map { $0.gems == 0 && $0.coins == 0 } ?? false }.count }
 
+    /// What a room costs: its gems, or its own price in coins, or what the next room costs now.
     func price(of room: HouseRoom) -> (coins: Int, gems: Int) {
-        room.gems > 0 ? (0, room.gems) : (HouseCatalog.roomPrice(owned: coinRooms), 0)
+        room.gems > 0 ? (0, room.gems) : room.coins > 0 ? (room.coins, 0) : (HouseCatalog.roomPrice(owned: coinRooms), 0)
     }
 
     func canAfford(coins: Int, gems: Int) -> Bool { self.coins >= coins && self.gems >= gems }
@@ -200,7 +247,17 @@ struct HouseState: Codable, Equatable {
     }
 
     /// Every room somewhere, and the house in one piece.
-    mutating func settle() { plots = HouseState.settled(rooms, from: plots) }
+    mutating func settle() { plots = HouseState.settled(rooms, from: plots, field: field) }
+
+    /// Buy the back field, if there's enough. True if it's theirs now.
+    @discardableResult
+    mutating func buyField() -> Bool {
+        if field { return true }
+        guard canAfford(coins: HouseCatalog.fieldPrice, gems: 0) else { return false }
+        coins -= HouseCatalog.fieldPrice
+        land = 1
+        return true
+    }
 
     /// Put a thing in its spot, buying it first if it isn't theirs. True if it's there now.
     /// (The outside of the house is always theirs to change.)
@@ -360,6 +417,27 @@ final class HouseStore {
     }
 
     @discardableResult
+    func buyField() -> Bool {
+        guard !saved.state.field, saved.state.buyField() else { return false }
+        save()
+        return true
+    }
+
+    /// What they've done in the games, as it now stands. (Nothing's saved again if it's the same.)
+    func note(feats: [String: Int]) {
+        guard owner != nil, saved.state.feats != feats else { return }
+        saved.state.feats = feats
+        save()
+    }
+
+    /// Call a pet something ("" takes its name away).
+    func name(pet key: String, _ name: String) {
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16))
+        saved.state.names[key] = name.isEmpty ? nil : name
+        save()
+    }
+
+    @discardableResult
     func place(_ item: HouseItem, in spot: HouseSpot, of room: String) -> Bool {
         guard saved.state.place(item, in: spot, of: room) else { return false }
         save()
@@ -442,8 +520,14 @@ final class HouseStore {
         if let coins { saved.state.coins = coins }
         if let gems { saved.state.gems = gems }
         if let fill {
-            saved.state.rooms = HouseCatalog.rooms.map(\.id)
-            for room in HouseCatalog.rooms + [HouseCatalog.outside] { for spot in room.spots {
+            // The back field, and every room and yard thing there's somewhere for, one after another.
+            saved.state.land = 1
+            for room in HouseCatalog.rooms + HouseCatalog.yard where !saved.state.rooms.contains(room.id) {
+                guard let p = saved.state.place(for: room.id) else { continue }
+                saved.state.rooms.append(room.id)
+                saved.state.plots[room.id] = p.kept
+            }
+            for room in HouseCatalog.everything + [HouseCatalog.outside] { for spot in room.spots {
                 let item = spot.items[min(fill, spot.items.count - 1)]
                 saved.state.owned.append(item.id)
                 saved.state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
@@ -468,5 +552,18 @@ extension ChatStore {
         math.open(for: owner, name: name, level: local?.base.level)
         house.open(for: owner, name: name)
         house.collect(from: local)
+        // What the shelf in their bedroom shows: nothing's taken off it if Vocab can't be read just now.
+        var feats = house.state.feats
+        feats["mathDays"] = math.goalDays
+        if let overview = local?.home().overview {
+            feats["words"] = max(feats["words"] ?? 0, overview.parts.mastered)
+            feats["streak"] = max(overview.streak, math.streak)
+        } else {
+            feats["streak"] = max(feats["streak"] ?? 0, math.streak)
+        }
+        if let n = CommandLine.arguments.firstIndex(of: "--house-feats").flatMap({ CommandLine.arguments.count > $0 + 1 ? Int(CommandLine.arguments[$0 + 1]) : nil }) {
+            feats = ["words": n * 15, "mathDays": n * 2, "streak": n]
+        }
+        house.note(feats: feats)
     }
 }

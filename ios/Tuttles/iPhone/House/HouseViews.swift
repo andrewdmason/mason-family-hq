@@ -315,6 +315,7 @@ struct HouseHomeView: View {
         .toolbar {
             if close == nil {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
+                if !parents { ToolbarItem(placement: .topBarLeading) { homeButton } }
                 ToolbarItem(placement: .topBarLeading) { mapButton }
                 ToolbarItem(placement: .topBarLeading) { turnButton }
                 if parents {
@@ -337,7 +338,11 @@ struct HouseHomeView: View {
             }
             store.openHouse()
             demo()
+            // (The time of day first, so nothing's built for noon and then again for the evening.)
+            stage.setSky(Self.sky())
             show()
+            // It opens on their own house, every time. (The parents, who have none here, see the family's end of the street.)
+            if !parents { stage.fly(to: .house(me), animated: false) }
             ready = true
             let args = CommandLine.arguments
             if args.contains("--house-sizes") {
@@ -365,6 +370,13 @@ struct HouseHomeView: View {
             if args.contains("--house-outside") {
                 go(.house(me), animated: false)
                 decorate()
+            }
+            if let at = args.firstIndex(of: "--house-gallery"), args.count > at + 1, let page = Int(args[at + 1]) { stage.gallery(page: page) }
+            // `--house-at parents --house-far 60 --house-quarters 1 --house-east 4 --house-south -6`: where to look from.
+            if let at = args.firstIndex(of: "--house-at"), args.count > at + 1 { go(.house(args[at + 1] == "me" ? me : args[at + 1]), animated: false) }
+            func value(_ flag: String) -> Float? { args.firstIndex(of: flag).flatMap { args.count > $0 + 1 ? Float(args[$0 + 1]) : nil } }
+            if value("--house-far") != nil || value("--house-quarters") != nil || value("--house-east") != nil || value("--house-south") != nil {
+                stage.peer(distance: value("--house-far"), quarters: value("--house-quarters"), east: value("--house-east") ?? 0, south: value("--house-south") ?? 0)
             }
             await house.sync(with: store)
             show()
@@ -404,9 +416,16 @@ struct HouseHomeView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $adding) {
-            HouseRoomSheet(move: {
+            HouseRoomSheet(field: stage.lot(of: me)?.room ?? false, move: {
                 adding = false
                 move()
+            }, land: {
+                // The back field's theirs: show it, from far enough off to see it all.
+                adding = false
+                MathAudio.shared.play("goal", volume: 0.7)
+                show()
+                go(.house(me))
+                Task { await house.sync(with: store) }
             }) { room in
                 adding = false
                 place(.new(room))
@@ -441,7 +460,7 @@ struct HouseHomeView: View {
 
     private func show() {
         stage.setDecorating(!parents)
-        stage.show(shown())
+        stage.show(shown(), staged: true)
     }
 
     private func refresh(trying: (Choosing, HouseItem?)? = nil, popping: String? = nil) {
@@ -473,9 +492,16 @@ struct HouseHomeView: View {
         }
         switch hit {
         case .spot(let kid, let roomID, let spotID):
-            // A marker, with the card up; without it, a thing in the room.
+            // A marker, with the card up.
             guard let room = HouseCatalog.room(roomID), let spot = room.spot(spotID) else { return }
             choose(kid, room, spot)
+        case .thing(let kid, let roomID, let spotID):
+            // A thing in the room: it does something. (Changing it is the red button's job.)
+            stage.poke(kid, roomID, spotID)
+            MathAudio.shared.play("tap", volume: 0.5)
+        case .person(let name):
+            stage.life.greet(name)
+            MathAudio.shared.play("equip", volume: 0.5)
         case .room(let kid, let roomID):
             if moving, kid == me {
                 // (The landing isn't picked up: it goes where the hall goes.)
@@ -596,13 +622,24 @@ struct HouseHomeView: View {
         guard let kid = openHouse else { return [] }
         var out = Set(state(of: kid)?.floors ?? [])
         // A room in hand can go upstairs before there is an upstairs; the basement only goes down.
-        if let placing, kid == me { out.formUnion(placing.room == HouseLayout.basement ? [-1] : [0, 1]) }
+        if let placing, kid == me { out.formUnion(placing.room == HouseLayout.basement ? [-1] : HouseLayout.yard(placing.room) ? [0] : [0, 1]) }
         return out.sorted()
     }
 
     /// How a house stands: their own as the phone has it, anyone else's (Mom & Dad's too) as it's shown.
     private func state(of kid: String) -> HouseState? {
         kid == me && !parents ? house.state : stage.state(of: kid)
+    }
+
+    /// Home: back to their own house, open, from wherever the camera's got to.
+    private func home() {
+        go(.house(me))
+    }
+
+    private var homeButton: some View {
+        Button(action: home) { Image(systemName: "house.fill") }
+            .accessibilityLabel("My house")
+            .accessibilityIdentifier("house.home")
     }
 
     /// The map button: out to the whole neighbourhood; from there, back to the family's end of the street, as it's first shown.
@@ -617,7 +654,7 @@ struct HouseHomeView: View {
     }
 
     private var mapButton: some View {
-        Button(action: map) { Image(systemName: wide ? "house.fill" : "map.fill") }
+        Button(action: map) { Image(systemName: wide ? "building.2.fill" : "map.fill") }
             .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
     }
 
@@ -636,6 +673,8 @@ struct HouseHomeView: View {
         if let placing {
             // Why it can't go where it's held; or what to do with it.
             if let trouble = held?.trouble { return trouble }
+            // It can go there, but there's something to know first.
+            if let advice = held?.advice { return advice }
             let room = HouseCatalog.room(placing.room)?.name ?? "room"
             return "Drag the \(room.lowercased()) to where it goes"
         }
@@ -661,14 +700,33 @@ struct HouseHomeView: View {
                     }
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Close")
-                    // Nothing to go back from: the map button, out to the whole neighbourhood and home again.
+                    // Nothing to go back from: home to their own house; and the map button, out to the whole neighbourhood and back to the street.
+                    if !parents {
+                        Button(action: home) {
+                            Image(systemName: "house.fill")
+                                .font(.system(.headline, design: .rounded).weight(.heavy))
+                                .frame(width: 42, height: 42)
+                        }
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .accessibilityLabel("My house")
+                        .accessibilityIdentifier("house.home")
+                    }
                     Button(action: map) {
-                        Image(systemName: wide ? "house.fill" : "map.fill")
+                        Image(systemName: wide ? "building.2.fill" : "map.fill")
                             .font(.system(.headline, design: .rounded).weight(.heavy))
                             .frame(width: 42, height: 42)
                     }
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
+                    // And round to the next corner, as the bar's button does when there's a bar.
+                    Button { stage.turn(1); MathAudio.shared.play("tap", volume: 0.4) } label: {
+                        Image(systemName: "rotate.right")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .frame(width: 42, height: 42)
+                    }
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel("Turn the view")
+                    .accessibilityIdentifier("house.turn")
                     Spacer()
                     HousePurse().opacity(choosing == nil ? 1 : 0)
                 }
@@ -726,7 +784,7 @@ struct HouseHomeView: View {
     }
 
     /// Two buttons that keep their corners, so nothing moves under a thumb as the town's dragged. On the
-    /// left, Rooms, always. On the right, the one thing in red: decorating the room they're in, which comes
+    /// left, Build (rooms, the yard and the back field), always. On the right, the one thing in red: decorating the room they're in, which comes
     /// and goes with the room. While a room's being put somewhere, only the way to stop.
     private var building: some View {
         HStack(spacing: 10) {
@@ -763,7 +821,7 @@ struct HouseHomeView: View {
                 }
             } else {
                 Button { adding = true; MathAudio.shared.play("tap", volume: 0.4) } label: {
-                    Label("Rooms", systemImage: "house.fill")
+                    Label("Build", systemImage: "hammer.fill")
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .padding(.horizontal, 16).padding(.vertical, 11)
                         .foregroundStyle(Self.ink)
@@ -908,6 +966,10 @@ struct HouseSpotChoices: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
+                // A pet that's theirs can be called something.
+                if case .pet = spot.place, let pet = placed, house.state.owns(pet) {
+                    HousePetName(key: HouseCatalog.key(room.id, spot.id), kind: pet.name).id(pet.id)
+                }
                 ForEach(spot.items) { item in row(item) }
                 if spot.starter == nil, placed != nil {
                     Button("Take it out") {
@@ -984,21 +1046,54 @@ struct HouseSpotChoices: View {
     }
 }
 
+/// What a pet's called: typed once, kept with the house, and shown over it when it's tapped.
+struct HousePetName: View {
+    let key: String
+    /// What it is ("Cat"), for before it has a name.
+    let kind: String
+    @State private var name = ""
+    @FocusState private var typing: Bool
+    private let house = HouseStore.shared
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pawprint.fill").foregroundStyle(TuttlesLook.accent)
+            TextField("Name your \(kind.lowercased())", text: $name)
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($typing)
+                .onSubmit { house.name(pet: key, name) }
+                .onChange(of: typing) { if !typing { house.name(pet: key, name) } }
+                .accessibilityIdentifier("house.pet.name")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+        .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 18))
+        .onAppear { name = house.state.names[key] ?? "" }
+    }
+}
+
 // MARK: - Buying a room
 
-/// Rooms: the way to move one they have, then the rooms still to have and what each costs. Picking one
-/// goes on to where it goes.
+/// Build: the way to move something they have, then the rooms still to have and what each costs, then the
+/// yard: the back field, and what goes out on the grass. Picking one goes on to where it goes.
 struct HouseRoomSheet: View {
+    /// Their lot has somewhere for a back field to be.
+    let field: Bool
     /// They want to move a room: on to picking which.
     let move: () -> Void
+    /// They've bought the back field.
+    let land: () -> Void
     let picked: (HouseRoom) -> Void
     @State private var refused = 0
+    @State private var buyingField = false
     private let house = HouseStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Rooms").font(.system(.title3, design: .rounded).weight(.heavy))
+                Text("Build").font(.system(.title3, design: .rounded).weight(.heavy))
                 Spacer()
                 HousePurse()
             }
@@ -1016,8 +1111,9 @@ struct HouseRoomSheet: View {
                                     .foregroundStyle(TuttlesLook.accent)
                                     .frame(width: 34)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Move a room").font(.system(.headline, design: .rounded).weight(.heavy))
-                                    Text("Pick one up and put it somewhere else. Free.").font(.footnote).foregroundStyle(.secondary)
+                                    Text("Move something").font(.system(.headline, design: .rounded).weight(.heavy))
+                                    Text("Pick a room or a yard thing up and put it somewhere else. Free.").font(.footnote).foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.leading)
                                 }
                                 Spacer(minLength: 6)
                                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
@@ -1036,32 +1132,79 @@ struct HouseRoomSheet: View {
                         .padding(.horizontal, 6)
                         .padding(.top, 8)
                     ForEach(left) { room in row(room) }
+                    let outside = HouseCatalog.yard.filter { !house.state.has(room: $0.id) }
+                    Text(outside.isEmpty ? "Everything for the yard is out there." : "For the yard")
+                        .font(.system(.footnote, design: .rounded).weight(.heavy))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.top, 14)
+                    if field, !house.state.field { fieldRow }
+                    ForEach(outside) { room in row(room) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 24)
             }
         }
         .sensoryFeedback(.error, trigger: refused)
+        .confirmationDialog("Buy the back field?", isPresented: $buyingField, titleVisibility: .visible) {
+            Button("Buy it for \(HouseCatalog.fieldPrice.formatted()) coins") {
+                if house.buyField() { land() } else { refused += 1 }
+            }
+            Button("Not yet", role: .cancel) {}
+        } message: {
+            Text("Ten more metres of grass behind your house, all the way across. Room for a pool, or a ball field.")
+        }
+    }
+
+    /// The back field: more land, bought once.
+    private var fieldRow: some View {
+        let afford = house.state.canAfford(coins: HouseCatalog.fieldPrice, gems: 0)
+        return Button {
+            guard afford else { refused += 1; MathAudio.shared.play("deny", volume: 0.6); return }
+            buyingField = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.dashed").font(.title2).foregroundStyle(.green).frame(width: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("The Back Field").font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text("The grass behind your fence, as far as the hedge. Yours, if you want it.")
+                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 6)
+                VStack(alignment: .trailing, spacing: 2) {
+                    HousePrice(coins: HouseCatalog.fieldPrice, gems: 0)
+                    if !afford { Text("\((HouseCatalog.fieldPrice - house.coins).formatted()) more").font(.caption2).foregroundStyle(.secondary) }
+                }
+                .opacity(afford ? 1 : 0.55)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 18))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("house.field")
     }
 
     private func row(_ room: HouseRoom) -> some View {
         let price = house.state.price(of: room)
         let afford = house.state.canAfford(coins: price.coins, gems: price.gems)
         let fits = house.state.place(for: room.id) != nil
+        let yard = HouseLayout.yard(room.id)
         return Button {
             guard afford, fits else { refused += 1; MathAudio.shared.play("deny", volume: 0.6); return }
             picked(room)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: room.gems > 0 ? "diamond.fill" : "house.fill")
+                Image(systemName: room.gems > 0 ? "diamond.fill" : yard ? "leaf.fill" : "house.fill")
                     .font(.title2)
-                    .foregroundStyle(room.gems > 0 ? Color.cyan : TuttlesLook.accent)
+                    .foregroundStyle(room.gems > 0 ? Color.cyan : yard ? Color.green : TuttlesLook.accent)
                     .frame(width: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(room.name).font(.system(.headline, design: .rounded).weight(.heavy))
                     Text(room.blurb).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     if !fits {
-                        Text("Nowhere it fits yet.")
+                        Text(yard ? (field && !house.state.field ? "It needs more land: the back field." : "No room for it on your land yet.") : "Nowhere it fits yet.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

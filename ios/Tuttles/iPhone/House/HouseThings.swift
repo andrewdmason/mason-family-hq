@@ -15,6 +15,8 @@ struct HouseFinish: Equatable {
     var fabric = "ef5e57"
     var fabricGlow = 0.0
     var lit = false
+    /// What whoever lives there has done in Vocab and Math, for the shelf that shows it (HouseEarned.swift).
+    var feats: [String: Int] = [:]
 }
 
 enum HouseKit {
@@ -38,11 +40,16 @@ enum HouseKit {
         "chair": ("Chair_1", 1.05), "tableRound": ("Table_RoundSmall", 1.32), "trashcan": ("Trashcan_Cylindric", 1),
     ]
 
+    /// What the other pack's own pieces are grown by, where they're not to its usual scale.
+    private static let grown: [String: Float] = ["Light_Chandelier": 3.0, "Houseplant_3": 1.5, "Houseplant_5": 1.4]
+
     private static var models: [String: Model] = [:]
 
     /// Where a piece's model is, what it's grown by to be the size of the real thing, and which pack it's from.
     private static func source(_ name: String) -> (path: String, scale: Float, quaternius: Bool) {
         if let (other, by) = better[name] { return ("house3d/\(other)", 0.485 * by, true) }
+        // The other pack's own pieces, by the names it gives them ("Fireplace", "Light_Chandelier").
+        if name.first?.isUppercase == true { return ("house3d/\(name)", 0.485 * (grown[name] ?? 1), true) }
         return ("furniture/\(name)", HouseProps.kitScale, false)
     }
 
@@ -199,6 +206,34 @@ enum HouseThings {
     /// What hangs from the ceiling, by its top.
     private static let hung: Set<String> = ["ceilingFan", "lampSquareCeiling"]
 
+    /// Something built in code, by its key: out in the yard, indoors, or one of the first ones.
+    private static func built(_ key: String) -> SCNNode {
+        if key.hasPrefix("slab:") { return slab(key) }
+        return HouseYardProps.made(key) ?? HouseFunProps.made(key) ?? HouseStreetProps.made(key) ?? HouseProps.made(key)
+    }
+
+    /// A flat piece of ground ("slab:6:4:c2c0b8": six metres by four, that colour), a hair over the grass.
+    private static func slab(_ key: String) -> SCNNode {
+        let parts = key.split(separator: ":").map(String.init)
+        let w = parts.count > 1 ? Float(parts[1]) ?? 3 : 3, d = parts.count > 2 ? Float(parts[2]) ?? 3 : 3
+        let batch = HouseBatch()
+        batch.box(SIMD3(-w / 2 + 0.06, -0.2, -d / 2 + 0.06), SIMD3(w / 2 - 0.06, 0.03, d / 2 - 0.06), HouseLook.plain(HouseLook.color(parts.count > 3 ? parts[3] : "c2c0b8"), rough: 0.9))
+        return batch.node(shadows: false)
+    }
+
+    private static var measured: [String: SIMD3<Float>] = [:]
+
+    /// How wide, tall and deep something built in code is.
+    private static func size(made key: String) -> SIMD3<Float> {
+        if let hit = measured[key] { return hit }
+        let found = HouseProps.extent(of: built(key)).map { $0.hi - $0.lo } ?? SIMD3(0.6, 0.6, 0.6)
+        measured[key] = found
+        return found
+    }
+
+    /// Which way a pack's models face as they come, in quarter turns to bring their fronts to +z.
+    private static let facing: [String: Float] = ["arcade": 0, "cars": 0, "skate": 0, "camp": 0, "holiday": 0]
+
     /// How far a thing comes out from the wall it's against.
     static func depth(_ item: HouseItem) -> Float {
         switch item.look {
@@ -206,6 +241,8 @@ enum HouseThings {
         case .stack(let base, _): HouseKit.size(base).z
         case .made("arcade"): 0.8
         case .made("trophies"): HouseKit.size("bookcaseOpen").z
+        case .made(let key) where HouseYardProps.keys.contains(key) || HouseFunProps.keys.contains(key): size(made: key).z
+        case .model(let folder, let name, let scale): HouseProps.size(name, folder: folder, scale: scale).z
         default: 0.6
         }
     }
@@ -215,6 +252,7 @@ enum HouseThings {
         switch item.look {
         case .kit(let name, _): HouseKit.size(name).y
         case .stack(let base, let on): HouseKit.size(base).y + HouseKit.size(on).y
+        case .model(let folder, let name, let scale): HouseProps.size(name, folder: folder, scale: scale).y
         default: 0
         }
     }
@@ -258,8 +296,14 @@ enum HouseThings {
         case .rug(let p, let a, let b): node = HouseProps.rug(p, a, b)
         case .art(let key, let a, let b): node = HouseProps.art(key, a, b)
         case .window(let kind): node = HouseProps.window(kind, sky.outlook)
-        case .made(let key): node = HouseProps.made(key)
-        case .paint, .flooring, .wood, .fabric, .roof, .roofShape, .cladding, .door: return nil
+        case .made("earned-shelf"): node = HouseEarned.shelf(finish.feats)
+        case .made(let key): node = built(key)
+        case .model(let folder, let name, let scale):
+            node = SCNNode()
+            let model = HouseProps.kit(name, folder: folder, scale: scale)
+            model.simdEulerAngles.y = (facing[folder] ?? 0) * .pi / 2
+            node.addChildNode(model)
+        case .paint, .paper, .flooring, .wood, .fabric, .roof, .roofShape, .cladding, .door, .fence, .style: return nil
         }
         HouseLook.physical(node)
         // Lights made for the old flat light (a campfire's, a bare bulb's) are far too bright for this one.
