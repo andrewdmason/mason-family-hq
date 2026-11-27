@@ -2,7 +2,9 @@
  * Turns the decks (deck-*.json), the word parts (parts-seed.json) and what
  * generate.mts wrote (gen-*.json) into the files the app reads:
  * src/lib/words/content/{lower,middle,parts}.json. Checks every question on
- * the way and lists what it had to leave out.
+ * the way and lists what it had to leave out. The sentence completions get
+ * the decoys decoys.mts chose for them (gen-decoys-*.json), less any the
+ * solver thought would also fit the sentence (checked-decoys.json).
  *
  *   tsx scripts/words/build.mts
  */
@@ -43,6 +45,31 @@ function agreed(file: string, id: string, forms: Record<string, unknown>): Recor
     else kept[name] = form;
   }
   return kept;
+}
+
+type GenDecoy = { text: string; trap: string; why: string };
+const decoysChecked = readIf<Record<string, { fits: string[]; best: string }>>("checked-decoys.json", {});
+let decoysKept = 0;
+let decoysLeftOut = 0;
+
+/**
+ * The decoys for a sentence completion that the solver, answering it cold,
+ * didn't think would also fit. None when it didn't pick the answer, or the
+ * sentence hasn't been checked yet with these decoys.
+ */
+function decoysFor(level: string, word: string, key: string, stem: string, gen: Record<string, { stem: string; decoys: GenDecoy[] }>, words: Set<string>) {
+  const mine = gen[`${word}|${key}`];
+  if (!mine || mine.stem !== stem || mine.decoys.length === 0) return [];
+  const verdict = decoysChecked[`${level}|${word}|${key}|${word}|${mine.decoys.map((d) => d.text).join("/")}`];
+  if (!verdict || verdict.best !== word) {
+    decoysLeftOut += mine.decoys.length;
+    return [];
+  }
+  const fits = new Set(verdict.fits.map(norm));
+  const kept = mine.decoys.filter((d) => !fits.has(norm(d.text)) && words.has(norm(d.text)) && norm(d.text) !== norm(word));
+  decoysKept += kept.length;
+  decoysLeftOut += mine.decoys.length - kept.length;
+  return kept.map((d) => ({ item: `w:${d.text}`, text: d.text, trap: d.trap, why: d.why }));
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
@@ -139,6 +166,8 @@ function buildParts() {
 function buildWords(level: "lower" | "middle") {
   const deck = read<DeckWord[]>(`deck-${level}.json`);
   const gen = readIf<Record<string, GenWord>>(`gen-${level}.json`, {});
+  const genDecoys = readIf<Record<string, { stem: string; decoys: GenDecoy[] }>>(`gen-decoys-${level}.json`, {});
+  const deckWords = new Set(deck.map((w) => norm(w.word)));
   const items = [];
   for (const w of deck) {
     const g = gen[w.word];
@@ -166,6 +195,11 @@ function buildWords(level: "lower" | "middle") {
       forms.sc2 = { kind: "sc", stem: g.sc2.sentence.trim(), answer: w.word, traps: cleanTraps(g.sc2.traps), tip: g.sc2.tip };
     }
     const usable = agreed(level, `w:${w.word}`, forms);
+    for (const [key, form] of Object.entries(usable) as [string, { kind: string; stem: string; decoys?: unknown[] }][]) {
+      if (form.kind !== "sc") continue;
+      const decoys = decoysFor(level, w.word, key, form.stem, genDecoys, deckWords);
+      if (decoys.length) form.decoys = decoys;
+    }
     if (Object.keys(usable).length < 2) {
       problems.push(`${level} ${w.word} left out: fewer than two usable questions`);
       continue;
@@ -199,4 +233,5 @@ for (const level of ["lower", "middle"] as const) {
 }
 console.log(`parts: ${parts.length}, ${parts.reduce((n, p) => n + Object.keys(p.forms).length, 0)} questions`);
 if (dropped) console.log(`left out ${dropped} questions the cold check didn't agree with`);
+console.log(`decoys: kept ${decoysKept}, left out ${decoysLeftOut} the solver thought might fit (or that aren't checked yet)`);
 if (problems.length) console.log(`\n${problems.length} problems:\n${problems.join("\n")}`);

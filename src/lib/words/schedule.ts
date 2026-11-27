@@ -27,7 +27,7 @@
 // ios/Tuttles/Tests/vocab-parity.json is written again
 // (`npm run words:parity`), and the app's tests then hold the Swift to it.
 
-import type { Item, Progress, Result } from "@/lib/words/types";
+import type { Decoy, Form, Item, Progress, Result, WrongChoice } from "@/lib/words/types";
 
 /** The day of the test. New words stop a week before it; the last days are all review. */
 export const TEST_DATE = "2027-01-11";
@@ -160,6 +160,33 @@ export function pickForm(item: Item, progress: Progress | null | undefined): str
   const others = rotated.filter((f) => f !== progress.last_form);
   const pool = others.length > 0 ? others : rotated;
   return pool.find((f) => !progress.forms_right.includes(f)) ?? pool[0];
+}
+
+/** A question has this many wrong answers. */
+export const WRONG_CHOICES = 3;
+
+/**
+ * The wrong answers to ask a question with. A sentence completion's own traps
+ * are everyday words, which leaves the vocab word as the answer every time,
+ * found without reading the sentence. So where it has decoys (other vocab
+ * words, clearly wrong in the sentence) it's asked with those, the ones
+ * they've already met first, so that every choice is a word they know and
+ * only the sentence says which one goes in the blank. Decoys not yet met come
+ * next, and the traps fill in when there aren't three decoys.
+ *
+ * `shuffle` chooses among the met decoys and among the rest; left out, they're
+ * taken in order (the parity sessions, ios/Tuttles/Tests/vocab-parity.json).
+ */
+export function pickWrong(form: Form, progress: Map<string, Progress>, shuffle: <T>(list: T[]) => T[] = (list) => list): WrongChoice[] {
+  const decoys = form.decoys ?? [];
+  const met = (d: Decoy) => progress.has(d.item);
+  const ordered = [...shuffle(decoys.filter(met)), ...shuffle(decoys.filter((d) => !met(d)))];
+  const picked: WrongChoice[] = ordered.slice(0, WRONG_CHOICES).map(({ text, trap, why }) => ({ text, trap, why }));
+  for (const trap of form.traps) {
+    if (picked.length >= WRONG_CHOICES) break;
+    if (!picked.some((p) => p.text.toLowerCase() === trap.text.toLowerCase())) picked.push(trap);
+  }
+  return picked;
 }
 
 export type PickContext = {

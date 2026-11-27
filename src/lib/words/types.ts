@@ -18,6 +18,16 @@ export type Trap =
 
 export type WrongChoice = { text: string; trap?: Trap; why?: string };
 
+/**
+ * Another word from the deck as a wrong answer to a sentence completion
+ * (scripts/words/decoys.mts): a vocab word that's clearly wrong in the
+ * sentence, so the answer isn't given away by being the only one.
+ */
+export type Decoy = WrongChoice & {
+  /** The word's id ("w:abundant"), to tell whether they've met it. */
+  item: string;
+};
+
 /** One way of asking about a word or part: what's shown, the right answer, three traps, and the tip for a miss. */
 export type Form = {
   kind: "syn" | "sc" | "part";
@@ -25,6 +35,8 @@ export type Form = {
   stem: string;
   answer: string;
   traps: WrongChoice[];
+  /** Sentence completions only: vocab words to ask it with in place of the traps, the ones they've met first (pickWrong). */
+  decoys?: Decoy[];
   tip: string;
 };
 
@@ -143,7 +155,10 @@ export type Feedback = {
  * shown, without waiting on the network. The server still grades the answer
  * when it arrives; this only says ahead of time what it will say.
  */
-export type QuestionKey = Omit<Feedback, "result" | "chosenWhy" | "mastered"> & {
+export type QuestionKey = Omit<
+  Feedback,
+  "result" | "chosenWhy" | "mastered"
+> & {
   /** For each choice, why it's wrong: null for the right one, or when nothing is written. */
   whys: (string | null)[];
   /** A right answer would make it mastered. */

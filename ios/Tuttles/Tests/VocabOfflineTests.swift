@@ -11,6 +11,8 @@ private struct Parity: Decodable {
     struct Step: Decodable {
         let item: String
         let form: String
+        /// The answer, then the wrong ones, as asked before they're shuffled.
+        let choices: [String]
         let isNew: Bool
         let requeued: Bool
         let result: String
@@ -84,6 +86,7 @@ final class VocabParityTests: XCTestCase {
                     let current = try XCTUnwrap(VocabEngine.choose(session, content: content, progress: progress, rules: rules, shuffle: false), place)
                     XCTAssertEqual(current.item, step.item, place)
                     XCTAssertEqual(current.form, step.form, place)
+                    XCTAssertEqual(current.choices.map(\.text), step.choices, place)
                     XCTAssertEqual(current.isNew, step.isNew, place)
                     XCTAssertEqual(current.requeued, step.requeued, place)
                     // Stop at the first question that differs: everything after it would too.

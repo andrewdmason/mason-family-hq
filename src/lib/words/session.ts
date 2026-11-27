@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { allParts, findItem, titleOf, wordsFor } from "@/lib/words/content";
 import { wordsToday } from "@/lib/words/day";
 import { buildOverview, unsortedWords, type Overview } from "@/lib/words/overview";
-import { applyAnswer, DAY_GOAL_MS, isTestDaySession, pickForm, pickNext, QUESTION_MAX_MS, troubleScore } from "@/lib/words/schedule";
+import { applyAnswer, DAY_GOAL_MS, isTestDaySession, pickForm, pickNext, pickWrong, QUESTION_MAX_MS, troubleScore } from "@/lib/words/schedule";
 import {
   statusOf,
   type ClientQuestion,
@@ -171,7 +171,7 @@ function choose(session: SessionRow, progress: Map<string, Progress>, turn: Turn
 
   const formKey = pickForm(item, progress.get(item.id));
   const form = item.forms[formKey];
-  const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...form.traps]);
+  const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...pickWrong(form, progress, shuffle)]);
   return {
     item: item.id,
     form: formKey,
@@ -581,7 +581,7 @@ export async function loadSortPage(profile: Profile, after?: number | null): Pro
     words: words.map((item, i) => {
       const formKey = pickForm(item, null);
       const form = item.forms[formKey];
-      const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...form.traps]);
+      const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...pickWrong(form, progress, shuffle)]);
       const current: Current = {
         item: item.id,
         form: formKey,

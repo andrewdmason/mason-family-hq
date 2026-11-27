@@ -10,7 +10,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { allParts, wordsFor } from "@/lib/words/content";
-import { addDays, applyAnswer, daysBetween, newWordsAllowed, pickForm, pickNext, TEST_DATE } from "@/lib/words/schedule";
+import { addDays, applyAnswer, daysBetween, newWordsAllowed, pickForm, pickNext, pickWrong, TEST_DATE, WRONG_CHOICES } from "@/lib/words/schedule";
 import { statusOf, type Level, type Progress, type Result } from "@/lib/words/types";
 import { parity, PARITY_FILE } from "./words/parity";
 
@@ -45,6 +45,9 @@ function simulate(st: Student, start: string) {
   let maxDue = 0;
   let newInLastWeek = 0;
   let sessions = 0;
+  // Sentence completions asked, and those asked with three vocab words they'd met as the wrong answers.
+  let sentences = 0;
+  let allMet = 0;
 
   for (let d = 0; d < days; d++) {
     const today = addDays(start, d);
@@ -64,6 +67,15 @@ function simulate(st: Student, start: string) {
       const item = [...words, ...parts].find((it) => it.id === pick.item)!;
       const before = progress.get(item.id) ?? null;
       const form = pickForm(item, before);
+      if (item.forms[form].kind === "sc") {
+        const f = item.forms[form];
+        const wrong = pickWrong(f, progress, (list) => list.slice().sort(() => rand() - 0.5));
+        const texts = new Set([f.answer, ...wrong.map((w) => w.text)].map((t) => t.toLowerCase()));
+        check(wrong.length === WRONG_CHOICES && texts.size === WRONG_CHOICES + 1, `${st.name}: ${item.id} ${form} asked with ${[...texts].join(", ")}`);
+        const metDecoy = (text: string) => (f.decoys ?? []).some((d) => d.text === text && progress.has(d.item));
+        sentences++;
+        if (wrong.every((w) => metDecoy(w.text))) allMet++;
+      }
       check(!before || before.last_form !== form || Object.keys(item.forms).length === 1, `${st.name}: ${item.id} asked as ${form} twice running`);
       if (!before && item.type === "word") {
         check(newWordsAllowed(today), `${st.name}: new word ${item.id} on ${today}, inside the last week`);
@@ -95,8 +107,10 @@ function simulate(st: Student, start: string) {
   const partsMet = parts.filter((p) => progress.has(p.id)).length;
   const partsMastered = parts.filter((p) => statusOf(progress.get(p.id)) === "mastered").length;
   console.log(
-    `${st.name} (${st.level}, knew ${Math.round(st.knows * 100)}% going in, ${sessions} sessions): met ${words.length - count.new} of ${words.length} words; mastered ${count.mastered}, almost ${count.almost}, learning ${count.learning}. Parts met ${partsMet}/${parts.length}, mastered ${partsMastered}. Most due on one morning: ${maxDue}.`
+    `${st.name} (${st.level}, knew ${Math.round(st.knows * 100)}% going in, ${sessions} sessions): met ${words.length - count.new} of ${words.length} words; mastered ${count.mastered}, almost ${count.almost}, learning ${count.learning}. Parts met ${partsMet}/${parts.length}, mastered ${partsMastered}. Most due on one morning: ${maxDue}. Sentence completions with three met vocab words as the wrong answers: ${Math.round((100 * allMet) / Math.max(1, sentences))}% of ${sentences}.`
   );
+  // A sentence's answer used to be the one vocab word among everyday ones, found without reading it.
+  check(allMet >= sentences * 0.8, `${st.name}: only ${allMet} of ${sentences} sentence completions asked with three vocab words they'd met`);
   check(newInLastWeek === 0, `${st.name}: ${newInLastWeek} new words in the last week`);
   check(partsMet === parts.length, `${st.name}: only ${partsMet} parts met`);
   // Three sessions' worth at one a day; at several a day, what a day and a half clears.

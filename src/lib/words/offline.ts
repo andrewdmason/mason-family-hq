@@ -177,7 +177,7 @@ export type OfflineAnswer = {
 function grade(form: Form, answer: OfflineAnswer): { result: Result; trap: string | null } {
   if (answer.chosen === null) return { result: "dontknow", trap: null };
   if (answer.chosen === form.answer) return { result: "correct", trap: null };
-  const trap = form.traps.find((t) => t.text === answer.chosen);
+  const trap = [...form.traps, ...(form.decoys ?? [])].find((t) => t.text === answer.chosen);
   if (trap) return { result: "wrong", trap: trap.trap ?? null };
   return { result: answer.result === "correct" ? "correct" : "wrong", trap: null };
 }
