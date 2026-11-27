@@ -15,6 +15,13 @@ import Foundation
 //
 // The house is a nice place first. What's odd about it is at the edges: the
 // things that cost gems, and what's said about the rest.
+//
+// Two of a room's spots aren't places in it: its wood and its cloth, which
+// are the colour of every wooden and every upholstered thing in the room. And
+// the house has spots of its own, outside (`outside`): the roof and its
+// shape, the walls, the front door, something on the roof and something on
+// the lawn. They're kept like a room's ("outside.roof"), and are what the
+// street sees.
 
 struct HouseItem: Identifiable, Hashable {
     enum Look: Hashable {
@@ -37,6 +44,18 @@ struct HouseItem: Identifiable, Hashable {
         case flooring(String, String, String)
         /// Something built in code (HouseProps.swift).
         case made(String)
+        /// The wood of everything in the room: its colour, and its darker parts'. `glow`, it shines a little.
+        case wood(String, String, glow: Double = 0)
+        /// The cloth of everything in the room.
+        case fabric(String, glow: Double = 0)
+        /// The roof's colour.
+        case roof(String, glow: Double = 0)
+        /// The roof's shape: "gable", "steep", "pyramid" or "flat".
+        case roofShape(String)
+        /// What the walls are clad in outside: a pattern and two colours. "rooms": each room its own colour.
+        case cladding(String, String, String)
+        /// The front door's colour; `round`, a round one.
+        case door(String, round: Bool = false)
     }
 
     let id: String
@@ -65,6 +84,11 @@ struct HouseSpot: Identifiable, Hashable {
         case walls
         case flooring
         case pet(Float, Float)
+        /// Not a place: the wood, or the cloth, of everything in the room.
+        case wood
+        case fabric
+        /// Outside the house (HouseScene.swift knows where, by the spot).
+        case outside
     }
 
     let id: String
@@ -111,7 +135,7 @@ enum HouseCatalog {
 
     private static let items: [String: HouseItem] = {
         var all: [String: HouseItem] = [:]
-        for room in rooms { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
+        for room in rooms + [outside] { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
         return all
     }()
 
@@ -137,6 +161,36 @@ enum HouseCatalog {
              [("plain", first.0, "How it came.", 0, 0, .flooring(first.1, first.2, first.3))] + more.map { ($0.0.lowercased().replacingOccurrences(of: " ", with: "-"), $0.0, $0.1, $0.5, 0, .flooring($0.2, $0.3, $0.4)) })
     }
 
+    /// The wood of a room's things: as the kit makes it, or one of these. The same in every room that has it.
+    private static func wood(_ room: String) -> HouseSpot {
+        spot(room, "wood", "Wood", .wood, [
+            ("plain", "Pine", "How it came.", 0, 0, .wood("e69963", "ad754c")),
+            ("birch", "Birch", "Pale. Shows where the mugs have been.", 50, 0, .wood("ecd3a4", "cfb07c")),
+            ("walnut", "Walnut", "Darker. Looks as if it knows things.", 60, 0, .wood("8a5a3c", "6b432b")),
+            ("white", "Painted White", "Two coats. You can still see what it was.", 70, 0, .wood("f4efe4", "d6cfbf")),
+            ("blue", "Painted Blue", "Somebody had half a tin left over.", 80, 0, .wood("5f92bf", "47749c")),
+            ("green", "Painted Green", "The colour of a shed that's seen things.", 80, 0, .wood("6fa37a", "55865f")),
+            ("red", "Painted Red", "Fast, for furniture.", 90, 0, .wood("c9503f", "a23c2e")),
+            ("black", "Ebony", "Every piece looks like a piano.", 120, 0, .wood("3a3839", "262425")),
+            ("gold", "Gold", "Solid. The floor is doing its best.", 0, 4, .wood("f5c542", "d9a62a", glow: 0.25)),
+        ])
+    }
+
+    /// The cloth of a room's things: sofas, cushions, covers.
+    private static func fabric(_ room: String) -> HouseSpot {
+        spot(room, "fabric", "Fabric", .fabric, [
+            ("plain", "Red", "How it came.", 0, 0, .fabric("ef5e57")),
+            ("cream", "Cream", "Stays clean exactly as long as you watch it.", 50, 0, .fabric("eadfc6")),
+            ("mustard", "Mustard", "Nobody's favourite. Everybody sits on it.", 50, 0, .fabric("e0a82e")),
+            ("green", "Forest", "Things lost down the side stay lost.", 60, 0, .fabric("3f7a55")),
+            ("navy", "Navy", "Hides everything. Don't ask what.", 60, 0, .fabric("2f4f8f")),
+            ("pink", "Pink", "Soft on purpose.", 70, 0, .fabric("f08ab0")),
+            ("plum", "Plum", "For sitting and having opinions.", 80, 0, .fabric("7a4a8f")),
+            ("charcoal", "Charcoal", "Serious cushions.", 90, 0, .fabric("4a4d55")),
+            ("glow", "Glow in the Dark", "Green, after dark. You'll find the sofa. It'll find you.", 0, 3, .fabric("b9f5a8", glow: 0.55)),
+        ])
+    }
+
     // MARK: The rooms
 
     static let rooms: [HouseRoom] = [bedroom, living, kitchen, bathroom, den, garden, basement, observatory]
@@ -156,6 +210,8 @@ enum HouseCatalog {
                 ("Blue Carpet", "Soft. Keeps a footprint for a while.", "carpet", "5b86c4", "4b74b0", 70),
                 ("Checkers", "Nobody's won on it yet.", "checker", "f1ede2", "2f3b55", 110),
             ]),
+            wood("bedroom"),
+            fabric("bedroom"),
             spot("bedroom", "bed", "Bed", .against(left: false, 3.0), [
                 ("single", "Single Bed", "Yours. It was here when you arrived.", 0, 0, .kit("bedSingle")),
                 ("double", "Big Bed", "Twice the bed. Same amount of you.", 220, 0, .kit("bedDouble")),
@@ -225,6 +281,8 @@ enum HouseCatalog {
                 ("Green Carpet", "Like a lawn that never needs you.", "carpet", "5e9a6a", "4f8a5b", 80),
                 ("Parquet", "Laid by someone who liked puzzles.", "parquet", "c98f55", "9a6a3a", 150),
             ]),
+            wood("living"),
+            fabric("living"),
             spot("living", "sofa", "Sofa", .against(left: false, 2.3), [
                 ("sofa", "Sofa", "Two of you fit. Three if you like each other.", 150, 0, .kit("loungeSofa")),
                 ("long", "Long Sofa", "You can lie down flat and still have sofa left.", 240, 0, .kit("loungeSofaLong")),
@@ -296,6 +354,8 @@ enum HouseCatalog {
                 ("Blue Tiles", "Cool underfoot at midnight.", "tiles", "9fc7e0", "7aa9c7", 70),
                 ("Boards", "A kitchen that thinks it's a cabin.", "boards", "c98f55", "a8733f", 60),
             ]),
+            wood("kitchen"),
+            fabric("kitchen"),
             spot("kitchen", "fridge", "Fridge", .against(left: false, 0.6), [
                 ("small", "Small Fridge", "Holds one of everything.", 70, 0, .kit("kitchenFridgeSmall")),
                 ("fridge", "Fridge", "The light stays on when it's shut. You've checked.", 150, 0, .kit("kitchenFridge")),
@@ -423,6 +483,8 @@ enum HouseCatalog {
                 ("Dark Boards", "Creak in a pattern.", "boards", "5a4032", "45301f", 80),
                 ("Arcade Carpet", "Shapes from another decade, having a party.", "arcade", "1b1b3a", "ff3fa4", 220),
             ]),
+            wood("den"),
+            fabric("den"),
             spot("den", "desk", "Desk", .against(left: false, 2.45), [
                 ("desk", "Long Desk", "Room for two to disagree.", 110, 0, .kit("desk")),
                 ("corner", "Corner Desk", "Takes the corner and keeps it.", 170, 0, .kit("deskCorner")),
@@ -484,6 +546,8 @@ enum HouseCatalog {
                 ("Paving", "Neat stones, neatly.", "tiles", "d3cdbf", "b5ae9e", 70),
                 ("Sand", "A beach, minus the sea.", "carpet", "edd9a3", "e2cb8f", 80),
             ]),
+            wood("garden"),
+            fabric("garden"),
             spot("garden", "tree", "Tree", .floor(0.9, 0.9, 0), [
                 ("small", "Young Tree", "Planning to be a big one.", 80, 0, .tree("tree-small")),
                 ("large", "Big Tree", "Older than the house. The house knows.", 180, 0, .tree("tree-large")),
@@ -575,6 +639,8 @@ enum HouseCatalog {
                 ("Moon Dust", "Grey and soft. Your footprints will last.", "carpet", "b9b9c2", "a9a9b3", 150),
                 ("Night Sky", "Like the ceiling fell, gently.", "stars", "0d1230", "ffe9a3", 250),
             ]),
+            wood("observatory"),
+            fabric("observatory"),
             spot("observatory", "scope", "Telescope", .floor(2.2, 2.2, 0), [
                 ("scope", "Telescope", "Points at the same star every night. It isn't on the chart.", 350, 0, .made("telescope")),
                 ("big", "The Big One", "Through it, you can see the other house's telescope looking back.", 0, 10, .made("telescope-big")),
@@ -604,6 +670,63 @@ enum HouseCatalog {
                 ("giraffe", "Giraffe", "Nearest to the stars of anyone.", 0, 10, .pet("animal-giraffe")),
                 ("lion", "Lion", "Small, for now.", 0, 12, .pet("animal-lion")),
                 ("elephant", "Elephant", "Remembers what's behind the basement door.", 0, 12, .pet("animal-elephant")),
+            ]),
+        ])
+
+    // MARK: Outside
+
+    /// The outside of the house: not a room, and always theirs. What's put
+    /// here is kept like a room's spots ("outside.roof").
+    static let outside = HouseRoom(
+        id: "outside", name: "Outside", blurb: "What the street sees.", cell: [0, 0, 0], gems: 0, stand: [0, 0],
+        spots: [
+            spot("outside", "roof", "Roof", .outside, [
+                ("tiles", "Red Tiles", "How it came.", 0, 0, .roof("c0574a")),
+                ("slate", "Slate", "Grey, and glad of the rain.", 80, 0, .roof("5d6672")),
+                ("green", "Green Tiles", "Moss, but on purpose.", 80, 0, .roof("4f8a5b")),
+                ("blue", "Blue Tiles", "From above, a small swimming pool.", 90, 0, .roof("3f6fa8")),
+                ("pink", "Pink Tiles", "The pigeons have stopped judging.", 100, 0, .roof("e88aa8")),
+                ("thatch", "Thatch", "Straw. Keep it away from the campfire.", 120, 0, .roof("d9b45a")),
+                ("black", "Black Tiles", "Warm in summer. Very warm.", 120, 0, .roof("2c2c33")),
+                ("gold", "Gold Roof", "Can be seen from the other house. And from space.", 0, 5, .roof("f5c542", glow: 0.25)),
+            ]),
+            spot("outside", "shape", "Roof shape", .outside, [
+                ("gable", "Pitched", "How it came. Two slopes and a ridge.", 0, 0, .roofShape("gable")),
+                ("flat", "Flat", "Somewhere to stand, if you could get up there.", 100, 0, .roofShape("flat")),
+                ("pyramid", "Pointed", "Comes to a point. Birds argue over it.", 150, 0, .roofShape("pyramid")),
+                ("steep", "Steep", "Twice the roof. The attic's for whoever asks first.", 180, 0, .roofShape("steep")),
+            ]),
+            spot("outside", "walls", "Walls", .outside, [
+                ("rooms", "As the Rooms Are", "How it came. Every room shows its colour outside.", 0, 0, .cladding("rooms", "", "")),
+                ("white", "White Boards", "Painted every spring, by somebody.", 90, 0, .cladding("boards", "f4f1e6", "d3ccb9")),
+                ("yellow", "Yellow Boards", "Cheerful from across the road.", 100, 0, .cladding("boards", "f2d16b", "d4b148")),
+                ("blue", "Blue Boards", "A house by the sea, wherever it is.", 100, 0, .cladding("boards", "7aa7c9", "5d8cb0")),
+                ("black", "Black Boards", "The house the others cross the road for.", 140, 0, .cladding("boards", "33353b", "1f2126")),
+                ("brick", "Red Brick", "Warm till long after dark.", 150, 0, .cladding("brick", "b5654a", "dccbb6")),
+                ("stone", "Stone", "Each one carried here. Nobody says by whom.", 180, 0, .cladding("stone", "9a9c9f", "6f7175")),
+                ("candy", "Candy Stripes", "Do not lick the house.", 0, 4, .cladding("stripes", "f4f1e6", "ef7fa6")),
+            ]),
+            spot("outside", "door", "Front door", .outside, [
+                ("red", "Red Door", "How it came.", 0, 0, .door("b5483b")),
+                ("blue", "Blue Door", "Knock twice. Three times means something else.", 60, 0, .door("2f5f9a")),
+                ("green", "Green Door", "There's a song about it.", 60, 0, .door("3f7a4a")),
+                ("yellow", "Yellow Door", "The post never goes next door by mistake.", 70, 0, .door("f2c230")),
+                ("pink", "Pink Door", "Opens for nearly anyone.", 70, 0, .door("ef8fb5")),
+                ("black", "Black Door", "With a knocker nobody's lifted.", 80, 0, .door("26262b")),
+                ("round", "Round Door", "Perfectly round. It doesn't lead to adventures. Probably.", 0, 3, .door("3f8a4a", round: true)),
+            ]),
+            spot("outside", "top", "On the roof", .outside, [
+                ("flag", "Flag", "For a country of one house.", 60, 0, .made("flag")),
+                ("vane", "Weathervane", "Points at the weather. Sometimes at you.", 70, 0, .made("vane")),
+                ("chimney", "Chimney", "Smoke goes up. Now and then, something else.", 90, 0, .made("chimney")),
+                ("dish", "Satellite Dish", "Picks up the other house's television.", 110, 0, .made("dish")),
+                ("beacon", "Lighthouse Lamp", "Turns all night. Ships have started to come.", 0, 5, .made("beacon")),
+            ]),
+            spot("outside", "lawn", "Front lawn", .outside, [
+                ("mailbox", "Mailbox", "Post comes. It's always for someone called Occupant.", 50, 0, .made("mailbox")),
+                ("snowman", "Snowman", "Doesn't melt. Has stopped asking why.", 70, 0, .made("snowman")),
+                ("flamingos", "Flamingos", "Two. There were three.", 80, 0, .made("flamingos")),
+                ("saucer", "Flying Saucer, Parked", "Somebody's visiting. They've been in there a while.", 0, 6, .made("saucer")),
             ]),
         ])
 }
