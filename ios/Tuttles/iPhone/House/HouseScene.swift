@@ -1,7 +1,7 @@
 import SceneKit
 import UIKit
 
-// The street, in 3D, seen from one fixed corner like a doll's house. A room
+// The neighbourhood (HouseTown.swift), in 3D, seen from one fixed corner like a doll's house. A room
 // is a square of floor with two walls behind it, and each house's rooms stand
 // where its owner put them (HouseLayout.swift). Where a room has another
 // behind it, the wall between comes down to the knee with a gap in it, so
@@ -37,6 +37,8 @@ struct HouseShown: Equatable {
     let mine: Bool
     var state: HouseState
     var look: MathLook
+    /// Someone else who lives there too (Mom & Dad's has two).
+    var partner: MathLook? = nil
 }
 
 final class HouseStage: NSObject, SCNSceneRendererDelegate {
@@ -56,10 +58,12 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     let scene = SCNScene()
     let cameraNode = SCNNode()
-    /// The town they stand in (HouseLand.swift), and its trees.
-    private let ground = HouseLand.ground()
-    private var trees: SCNNode?
+    /// The town they stand in (HouseTown.swift): its streets, the neighbours, the trees.
+    private let land = HouseTown.land()
+    /// Everyone's houses, and Mom & Dad's (HouseTown.parents), which is always there.
     private var houses: [HouseShown] = []
+    /// The lot each stands on.
+    private var lots: [String: HouseTown.Lot] = [:]
     private var nodes: [String: SCNNode] = [:]
     private var characters: [String: MathCharacter] = [:]
     /// The characters are moved on SceneKit's own thread.
@@ -92,8 +96,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private var last: TimeInterval = 0
     /// Where the camera looks, and how much it takes in: half the height of the view, in the world.
     typealias Eye = (middle: SIMD3<Float>, scale: Float)
-    /// How the street is framed before anyone moves it.
+    /// How the family's end of the street is framed, before anyone moves it.
     private var framed: Eye = (.zero, 12)
+    /// Pulled right back, to the whole neighbourhood.
+    private(set) var wide = false
     /// Where the camera is from there, dragged, pinched or flown: across the
     /// screen and away up it, along the ground, and how many times closer.
     private(set) var roam = Roam()
@@ -105,11 +111,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
         /// As far as the town can be pinched out and in: in, at least this
         /// many times, and as much further as gets a room filling the screen.
-        static let zooms: ClosedRange<Float> = 0.35...3
+        static let zooms: ClosedRange<Float> = 0.3...3
         /// The least of the world the view takes in, half its height: a bit of a room.
         static let closest: Float = 4.5
-        /// As far as it can be dragged either way: where the trees still are.
-        static let reach = HouseLand.block * 2.5
+        /// As far as it can be dragged either way. (The town's edges stop it sooner: HouseStage.hold.)
+        static let reach: Float = 200
         /// A point up the screen is further than that along the ground, by this.
         static let tilt = HouseStage.back.y
 
@@ -158,10 +164,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         camera.usesOrthographicProjection = true
         camera.orthographicScale = 12
         camera.zNear = 1
-        camera.zFar = 400
+        camera.zFar = Double(Self.distance) * 2.2
         cameraNode.camera = camera
         scene.rootNode.addChildNode(cameraNode)
-        cameraNode.simdPosition = Self.back * 120
+        cameraNode.simdPosition = Self.back * Self.distance
         cameraNode.look(at: SCNVector3(0, 0, 0))
 
         sun.light = SCNLight()
@@ -170,16 +176,22 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         sun.light?.shadowMode = .deferred
         sun.light?.shadowRadius = 6
         sun.light?.shadowSampleCount = 8
-        sun.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
-        sun.light?.orthographicScale = 40
-        sun.light?.zFar = 300
+        // Wide enough to shade all of the town. (Where it shines from is the sky's: `light`.)
+        sun.light?.shadowMapSize = CGSize(width: 4096, height: 4096)
+        sun.light?.orthographicScale = 115
+        sun.light?.zFar = 420
         scene.rootNode.addChildNode(sun)
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
         scene.rootNode.addChildNode(ambient)
-        scene.rootNode.addChildNode(ground)
+        scene.rootNode.addChildNode(land)
         light()
     }
+
+    /// How far off the camera is. Pulled back to the whole town, the top of
+    /// the screen is a long way further than the bottom: far enough off that
+    /// neither is cut short.
+    private static let distance: Float = 520
 
     // MARK: The time of day
 
@@ -202,8 +214,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         sun.light?.intensity = from.intensity
         sun.light?.color = from.color
         sun.light?.shadowColor = UIColor(white: 0, alpha: sky.shadow)
-        sun.simdPosition = from.from
-        sun.look(at: SCNVector3(0, 4, -4))
+        // Over the middle of the town, and far enough off that all of it is in its light.
+        sun.simdPosition = HouseTown.middle + from.from * 2
+        sun.look(at: SCNVector3(HouseTown.middle.x, 4, HouseTown.middle.z - 4))
         ambient.light?.intensity = sky.ambient.intensity
         ambient.light?.color = sky.ambient.color
         scene.background.contents = sky.picture
@@ -211,41 +224,27 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     // MARK: What's shown
 
-    /// Put these houses on the street, the first nearest. Any already there is rebuilt.
-    func show(_ houses: [HouseShown]) {
+    /// Put these houses in the town, each on its lot (HouseTown.lots), with Mom & Dad's. Any already there is rebuilt.
+    func show(_ shown: [HouseShown]) {
+        let houses = shown + [HouseTown.parents]
         self.houses = houses
+        lots = HouseTown.lots(for: houses.map { ($0.kid, $0.name) })
         for node in nodes.values { node.removeFromParentNode() }
         nodes = [:]
         lock.lock(); characters = [:]; lock.unlock()
-        // Each on a block of the town, one behind the other up the screen (a
-        // phone is tall), as many blocks back as it takes for the one in front
-        // not to hide any of it. Seen from one fixed corner with no
-        // perspective, two things only hide each other where they overlap on
-        // screen.
-        let up = simd_normalize(simd_cross(Self.back, Self.right))
-        let step = SIMD3<Float>(-HouseLand.block, 0, -HouseLand.block)
-        var top: Float = 0, at = SIMD3<Float>(0, 0, 0), blocks: [SIMD2<Int>] = []
-        for (i, house) in houses.enumerated() {
+        for house in houses {
             let node = build(house)
-            let box = Self.box(house.state, right: Self.right, up: up)
-            if i > 0 {
-                at += step
-                while simd_dot(at, up) + box.u0 < top + 2.6 { at += step }
-            }
-            node.simdPosition = at
-            blocks.append(SIMD2(Int((at.x / HouseLand.block).rounded()), Int((at.z / HouseLand.block).rounded())))
-            top = simd_dot(at, up) + box.u1
+            node.simdPosition = lots[house.kid]?.origin ?? .zero
             scene.rootNode.addChildNode(node)
             nodes[house.kid] = node
         }
-        trees?.removeFromParentNode()
-        let trees = HouseLand.trees(around: blocks.isEmpty ? [SIMD2(0, 0)] : blocks)
-        scene.rootNode.addChildNode(trees)
-        self.trees = trees
         reframe()
         tidy()
         settle()
     }
+
+    /// How a house that's shown stands: a kid's, or Mom & Dad's.
+    func state(of kid: String) -> HouseState? { houses.first { $0.kid == kid }?.state }
 
     /// How far a house's rooms reach across and up the screen, from where it stands.
     private static func box(_ state: HouseState, right: SIMD3<Float>, up: SIMD3<Float>) -> (r0: Float, r1: Float, u0: Float, u1: Float) {
@@ -372,6 +371,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let yard = SCNNode()
         yard.name = "yard"
         yard.addChildNode(HouseLand.fence())
+        // A path from the front door down to the street.
+        if let lot = lots[house.kid], let door = Self.frontDoor(state) { yard.addChildNode(HouseTown.path(from: door, on: lot)) }
         // Trees at the back of the lot; not while choosing where a room goes, so they're not in the way.
         if !(house.mine && placing != nil) { yard.addChildNode(HouseLand.garden(state, seed: house.kid)) }
         root.addChildNode(yard)
@@ -404,6 +405,26 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let lamps = Self.category(home.id)
         character.node.enumerateHierarchy { n, _ in n.categoryBitMask = 1 | lamps }
         root.addChildNode(character.node)
+        if let look = house.partner {
+            // Beside them on the step; indoors, in the kitchen.
+            let partner = MathCharacter(look: look, height: 1.5)
+            partner.play("idle")
+            lock.lock(); characters[house.kid + "+"] = partner; lock.unlock()
+            partner.node.simdPosition = character.node.simdPosition + SIMD3(1.3, 0, 0.2)
+            if open(house.kid) {
+                let kitchen = HouseCatalog.room("kitchen").flatMap { state.has(room: $0.id) && $0.id != home.id ? $0 : nil }
+                if let kitchen {
+                    partner.node.simdPosition = at(state.cell(of: kitchen.id), of: house.kid) + SIMD3(kitchen.stand[0], 0, kitchen.stand[1])
+                    let seen = presence(state.cell(of: kitchen.id), of: house)
+                    partner.node.isHidden = seen == 0
+                    if seen < 1 { partner.node.opacity = seen }
+                } else {
+                    partner.node.isHidden = true
+                }
+            }
+            partner.node.eulerAngles.y = .pi * 1.25
+            root.addChildNode(partner.node)
+        }
         return root
     }
 
@@ -471,7 +492,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
 
         if closed {
-            Self.outside(of: node, room: room, cell: cell, state: house.state, look: look, wall: outside, height: wallH)
+            Self.outside(of: node, room: room, cell: cell, state: house.state, look: look, wall: outside, height: wallH, solar: house.kid == HouseTown.parentsID)
             // A door out onto the top of the stairs, the colour of the front one.
             for stairs in Self.stairs(house.state) where stairs.top == cell {
                 let door = HouseProps.door(look.door.color)
@@ -563,7 +584,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// The front of a room seen from the street: walls where nothing's in
     /// front of it, with a window in each, and a roof if nothing's on top.
     /// The front door's on the room nearest the street, on the ground.
-    private static func outside(of node: SCNNode, room: HouseRoom, cell: [Int], state: HouseState, look: Outside, wall own: SCNMaterial, height h: Float) {
+    private static func outside(of node: SCNNode, room: HouseRoom, cell: [Int], state: HouseState, look: Outside, wall own: SCNMaterial, height h: Float, solar: Bool = false) {
         let S = HouseCatalog.side
         let garden = room.id == "garden"
         // A wall to the front where nothing's there, or only the garden (it has no roof to hide behind).
@@ -606,6 +627,16 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             return
         }
         node.add(HouseProps.roof(look.shape, look.roof), S / 2, h + 0.25, S / 2)
+        // Solar panels on the slope that faces whoever's looking, as Mom & Dad's has. (A roof with a ridge only.)
+        if solar, look.shape != "pyramid", look.shape != "flat" {
+            let half = S / 2 + 0.35, high = HouseProps.rise(look.shape, 0, 0)
+            let slope = atan2(high, half), length = hypot(high, half)
+            let panel = SCNNode()
+            panel.addChildNode(MathShape.box(length * 0.62, 0.07, S * 0.74, MathMat.color("e8edf2")))
+            panel.add(MathShape.box(length * 0.56, 0.07, S * 0.68, MathMat.color("27406b")), 0, 0.02, 0)
+            panel.eulerAngles.z = -slope
+            node.add(panel, S / 2 + half / 2 + sin(slope) * 0.05, h + 0.25 + high / 2 + cos(slope) * 0.05, S / 2)
+        }
     }
 
     /// The room whose roof has something on it: the highest with a roof of
@@ -775,7 +806,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     }
 
     /// The corners of something to look at, in the world.
-    private func corners(_ focus: Focus) -> [SIMD3<Float>] {
+    /// (`all`: of a house, every floor of it, whichever is picked.)
+    private func corners(_ focus: Focus, all: Bool = false) -> [SIMD3<Float>] {
         let S = HouseCatalog.side, H = HouseCatalog.height
         func box(_ house: HouseShown, _ cell: [Int], pad: Float) -> [SIMD3<Float>] {
             guard let origin = nodes[house.kid]?.simdPosition else { return [] }
@@ -787,7 +819,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         func whole(_ house: HouseShown, sign: Bool) -> [SIMD3<Float>] {
             var cells = house.state.rooms.map { house.state.cell(of: $0) }
             if house.mine, let placing, focus == .house(house.kid) { cells += placing.cells }
-            if !sign { cells = cells.filter { presence($0, of: house) > 0 } }
+            if !sign, !all { cells = cells.filter { presence($0, of: house) > 0 } }
             var out = cells.flatMap { box(house, $0, pad: 0.2) }
             // The stairs stand out from it.
             if let origin = nodes[house.kid]?.simdPosition {
@@ -864,7 +896,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private func reframe() {
         let was = eye, moved = roam != Roam()
         if let street = framing(.street) { framed = street }
-        if moved { roam = roam(for: was) }
+        if wide, let town = framing(HouseTown.corners) { roam = roam(for: town) } else if moved { roam = roam(for: was) }
         look(animated: false)
     }
 
@@ -876,7 +908,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         // Along the ground, so the town stays the same distance off and nothing is cut short.
         // (It only ever looks one way: set once, in init.)
-        cameraNode.simdPosition = eye.middle + Self.back * 150
+        cameraNode.simdPosition = eye.middle + Self.back * Self.distance
         cameraNode.camera?.orthographicScale = Double(eye.scale)
         SCNTransaction.commit()
     }
@@ -891,10 +923,30 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     /// Go and look at the street, a house or a room. Nothing's locked: they can drag and pinch away from it.
     func fly(to focus: Focus, animated: Bool = true) {
+        wide = false
         set(focus)
         if case .street = focus { roam = Roam() } else if let eye = framing(focus, lifted: lifted) { roam = roam(for: eye) }
         look(animated: animated)
         changed?()
+    }
+
+    /// Pull right back, to the whole neighbourhood from edge to edge.
+    func flyToTown(animated: Bool = true) {
+        set(.street)
+        if let town = framing(HouseTown.corners) { roam = roam(for: town) }
+        wide = true
+        look(animated: animated)
+        changed?()
+    }
+
+    /// Dragged or pinched off the edge of the town: back to where there's something to see.
+    private func hold() {
+        let eye = self.eye
+        let ground = eye.middle - Self.back * (eye.middle.y / Self.back.y)
+        let d = HouseTown.kept(ground) - ground
+        guard simd_length(d) > 0.001 else { return }
+        roam.across += simd_dot(d, Self.right)
+        roam.away += simd_dot(d, Self.away)
     }
 
     private func set(_ new: Focus, rebuilding: Bool = false, fading: Bool = false) {
@@ -942,7 +994,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
         guard let (house, origin, gap) = best else { return .street }
         let wasOpen = open(house.kid), room = roomScale
-        let fit = framing(corners(.house(house.kid)))?.scale ?? room
+        // (All of the house, not only the floor picked: picking a floor of a big house mustn't shut it.)
+        let fit = framing(corners(.house(house.kid), all: true))?.scale ?? room
         guard eye.scale <= max(fit * (wasOpen ? 1.7 : 1.4), room * (wasOpen ? 2 : 1.7)), gap <= S * (wasOpen ? 2 : 1) else { return .street }
         // Close enough for a room to be most of the screen: the one in the middle of it.
         var inRoom: String?
@@ -973,6 +1026,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let outside = room == HouseCatalog.outside.id
         let rebuilding = chosen != key
         chosen = key
+        wide = false
         let to = outside ? Focus.house(kid) : .room(kid, room), shutting = outside ? kid : nil
         if !lifted || focus != to || shut != shutting {
             if !lifted { beforeLift = (roam, roam) }
@@ -1015,6 +1069,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Dragged by `by` points: the town goes with the finger.
     func drag(by: CGPoint, height: CGFloat) {
         roam.drag(by: by, scale: framed.scale, height: height)
+        hold()
+        wide = false
         look(animated: false)
         settle()
         changed?()
@@ -1023,6 +1079,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Pinched by `factor` about `at`, in points from the middle of the view.
     func pinch(by factor: CGFloat, about at: CGPoint, height: CGFloat) {
         roam.pinch(by: factor, about: at, scale: framed.scale, height: height)
+        hold()
+        wide = false
         look(animated: false)
         settle()
         changed?()
@@ -1037,9 +1095,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         case .house: under = under || floor == -1
         case .room(let kid, let id): under = under || floor == -1 || houses.first { $0.kid == kid }?.state.cell(of: id)[1] == -1
         }
-        // Underground: no grass or trees, just earth round the basement.
-        ground.isHidden = under
-        trees?.isHidden = under
+        // Underground: no town, just earth round the basement.
+        land.isHidden = under
         scene.background.contents = under ? UIColor(red: 0.45, green: 0.33, blue: 0.24, alpha: 1) : sky.picture
         for (kid, node) in nodes {
             node.childNode(withName: "label", recursively: false)?.isHidden = open(kid) || shut == kid

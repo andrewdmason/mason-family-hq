@@ -368,6 +368,103 @@ final class HouseTests: XCTestCase {
         XCTAssertFalse(stage.moved)
     }
 
+    // MARK: The neighbourhood
+
+    func testEachHouseHasItsOwnLot() {
+        // Mom & Dad's, Sebastian's and Oscar's are where they are, whoever's phone it is.
+        let family = HouseTown.lots(for: [("a", "Oscar"), ("b", "Sebastian"), (HouseTown.parentsID, "Mom & Dad")])
+        XCTAssertEqual(family["a"], HouseTown.oscar)
+        XCTAssertEqual(family["b"], HouseTown.sebastian)
+        XCTAssertEqual(family[HouseTown.parentsID], HouseTown.parentsLot)
+        // Anyone else gets the first that's free: the other kid's in the demo, an empty one beside both kids.
+        let demo = HouseTown.lots(for: [("me", "You"), ("brother", "Oscar")])
+        XCTAssertEqual(demo["me"], HouseTown.sebastian)
+        XCTAssertEqual(demo["brother"], HouseTown.oscar)
+        let parent = HouseTown.lots(for: [("dad", "Andrew"), ("a", "Oscar"), ("b", "Sebastian")])
+        XCTAssertEqual(parent["dad"], HouseTown.spare[0])
+        // No two on one lot, however many there are.
+        let crowd = HouseTown.lots(for: (0..<5).map { ("k\($0)", "Kid \($0)") })
+        XCTAssertEqual(Set(crowd.values.map { [$0.x, $0.z] }).count, 5)
+    }
+
+    func testNoLotIsOnAStreetOrAnother() {
+        let lots = [HouseTown.parentsLot, HouseTown.sebastian, HouseTown.oscar] + HouseTown.spare
+        let verge = HouseTown.roadWidth / 2 + HouseTown.walk
+        for (i, lot) in lots.enumerated() {
+            for other in lots[(i + 1)...] {
+                let apart = lot.x + lot.wide <= other.x || other.x + other.wide <= lot.x || lot.z + lot.deep <= other.z || other.z + other.deep <= lot.z
+                XCTAssertTrue(apart, "\(lot) is on \(other)")
+            }
+            // Inside the four streets, and off Avalon and its turning circle all the way along.
+            XCTAssertGreaterThan(lot.x, HouseTown.west + verge)
+            XCTAssertLessThan(lot.x + lot.wide, HouseTown.east - verge)
+            XCTAssertGreaterThan(lot.z, HouseTown.north + verge)
+            XCTAssertLessThan(lot.z + lot.deep, HouseTown.south - verge)
+            var x = lot.x
+            while x <= lot.x + lot.wide {
+                if x >= 0 {
+                    let road = HouseTown.avalon(x)
+                    XCTAssertTrue(lot.z + lot.deep <= road - verge || lot.z >= road + verge, "\(lot) is on Avalon at \(x)")
+                }
+                for z in [lot.z, lot.z + lot.deep] { XCTAssertGreaterThan(hypot(x, z), HouseTown.bulb + HouseTown.walk) }
+                x += 1
+            }
+            // No tree is let onto it, nor in front of it.
+            XCTAssertFalse(HouseTown.clear(lot.x + lot.wide / 2, lot.z + lot.deep / 2))
+            XCTAssertFalse(HouseTown.clear(lot.x + lot.wide / 2, lot.z + lot.deep + 3))
+        }
+        // Nor onto a road.
+        XCTAssertFalse(HouseTown.clear(40, HouseTown.avalon(40)))
+        XCTAssertFalse(HouseTown.clear(HouseTown.west, 0))
+        XCTAssertFalse(HouseTown.clear(0, 0))
+        XCTAssertTrue(HouseTown.clear(HouseTown.west - 15, HouseTown.north - 15))
+    }
+
+    func testMomAndDadsHouseHoldsTogetherAndIsFull() {
+        let state = HouseTown.parents.state
+        XCTAssertEqual(Set(state.rooms), Set(HouseCatalog.rooms.map(\.id)))
+        XCTAssertTrue(HouseLayout.sound(Dictionary(uniqueKeysWithValues: state.rooms.map { ($0, state.cell(of: $0)) })))
+        for room in HouseCatalog.rooms { for spot in room.spots {
+            XCTAssertNotNil(state.item(in: spot, of: room.id), "nothing in \(room.id).\(spot.id)")
+        } }
+        // The front door's on a proper room, not the garden.
+        XCTAssertEqual(HouseStage.frontDoor(state).flatMap { state.room(at: $0) }, "living")
+    }
+
+    func testMomAndDadsIsAlwaysThereAndTheMapButtonShowsEverything() {
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        stage.show([HouseShown(kid: "me", name: "Sebastian", mine: true, state: HouseState(), look: .plain)])
+        XCTAssertNotNil(stage.state(of: HouseTown.parentsID))
+        XCTAssertFalse(stage.wide)
+        // Flown to, it opens like any other.
+        stage.fly(to: .house(HouseTown.parentsID), animated: false)
+        XCTAssertEqual(stage.focus, .house(HouseTown.parentsID))
+        // A floor picked with the whole house in view leaves it open, on that floor.
+        stage.setFloor(-1)
+        XCTAssertEqual(stage.focus, .house(HouseTown.parentsID))
+        XCTAssertEqual(stage.floor, -1)
+        stage.setFloor(nil)
+        // In its basement the town's put away, and it's back out on the street.
+        let land = stage.scene.rootNode.childNode(withName: "land", recursively: false)
+        XCTAssertEqual(land?.isHidden, false)
+        stage.fly(to: .room(HouseTown.parentsID, "basement"), animated: false)
+        XCTAssertEqual(land?.isHidden, true)
+        // Pulled back to the whole neighbourhood: everything shut, until it's moved.
+        stage.flyToTown(animated: false)
+        XCTAssertTrue(stage.wide)
+        XCTAssertEqual(stage.focus, .street)
+        XCTAssertEqual(land?.isHidden, false)
+        stage.drag(by: CGPoint(x: 20, y: 0), height: 800)
+        XCTAssertFalse(stage.wide)
+        // Dragged as far as it goes, it stops at the edge of the town; and home is how it was first shown.
+        stage.drag(by: CGPoint(x: -1_000_000, y: 0), height: 800)
+        XCTAssertLessThan(stage.roam.across, HouseStage.Roam.reach)
+        stage.fly(to: .street, animated: false)
+        XCTAssertFalse(stage.moved)
+        XCTAssertFalse(stage.wide)
+    }
+
     // MARK: Stairs
 
     func testAFloorBuiltOnGetsStairsUpToIt() {
