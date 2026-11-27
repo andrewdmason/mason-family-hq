@@ -662,8 +662,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Show a floor of the open house; a room in hand goes to it.
     func setFloor(_ floor: Int?) {
         self.floor = floor
-        if var h = held, let floor {
-            h.plot.floor = floor
+        if var h = held, let floor, floor != h.plot.floor {
+            // It goes to the nearest place on that floor it can stand, if there is one: upstairs, by the landing.
+            var to = h.plot
+            to.floor = floor
+            h.plot = mine?.state.place(for: h.room, on: floor, near: to) ?? to
             held = h
             weigh()
         }
@@ -786,6 +789,29 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         } else {
             batch.box(SIMD3(0.05, 0.25, 0.05), SIMD3(W - 0.05, 2.2, 0.25), m)
             batch.box(SIMD3(0.05, 0.25, 0.25), SIMD3(0.25, 2.2, D - 0.05), m)
+        }
+        // Upstairs with nothing up there yet: where the stairs come up is shown, over the hall, since that's
+        // what the first room up there has to touch.
+        if h.plot.floor == 1, mine.state.plot(of: HouseLayout.landing) == nil, let entry = mine.state.plot(of: HouseLayout.hall) {
+            let (lw, ld) = HouseLayout.size(HouseLayout.hall, entry)
+            let pale = SCNMaterial()
+            pale.lightingModel = .constant
+            pale.diffuse.contents = HouseLook.color("ffffff")
+            pale.transparency = 0.7
+            pale.writesToDepthBuffer = false
+            let mark = HouseBatch()
+            mark.box(SIMD3(0.1, 0, 0.1), SIMD3(Float(lw) - 0.1, 0.3, Float(ld) - 0.1), pale)
+            let landing = mark.node(shadows: false)
+            landing.simdPosition = SIMD3(lot.x + Float(entry.x), HousePlan.storey + 0.03, lot.z + Float(entry.z))
+            ghost.addChildNode(landing)
+            let sign = HouseProps.sign(["Stairs"])
+            sign.enumerateHierarchy { node, _ in node.geometry?.materials.forEach { $0.lightingModel = .constant } }
+            sign.simdScale = SIMD3(repeating: 0.9)
+            sign.simdPosition = SIMD3(lot.x + Float(entry.x) + Float(lw) / 2, HousePlan.storey + 1.6, lot.z + Float(entry.z) + Float(ld) / 2)
+            sign.constraints = [SCNBillboardConstraint()]
+            sign.castsShadow = false
+            sign.renderingOrder = 95
+            ghost.addChildNode(sign)
         }
         let body = batch.node(shadows: false)
         body.simdPosition = SIMD3(-W / 2, 0, -D / 2)

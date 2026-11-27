@@ -267,7 +267,12 @@ in each room fixed spots, each with its own things to choose between.
   clear; of the other two, whatever metres nothing in the catalogue stands
   at, `HouseLayout.doors(of:)`), and between two open rooms it's an arch. A
   room put where it can't have one is told why: it touches no other room,
-  or things stand against the wall between, and to slide it along or turn it. Every house has a hall
+  or things stand against the wall between, and to slide it along or turn it.
+  The first room upstairs has to touch the landing, which isn't there yet:
+  so with a room in hand upstairs and nothing up there, where the stairs
+  come up is marked over the hall, and picking a floor with a room in hand
+  takes it to the nearest place on that floor it can stand
+  (`HouseState.place(for:on:near:)`). Every house has a hall
   with the front door and the stairs in it, and a landing over it once
   there's a room upstairs; neither is bought (`HouseCatalog.fixtures`).
   Where rooms stand is kept as `HouseState.plots` ([x, z, floor, turn]); a

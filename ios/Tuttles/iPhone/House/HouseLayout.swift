@@ -283,6 +283,8 @@ enum HouseLayout {
         case frontDoor
         /// A room on its own, touching no other.
         case noWayIn(String)
+        /// A room upstairs on its own: not touching the landing, where the stairs come up, or any room up there.
+        case offLanding(String)
         /// A room that touches another, but only along walls with things against them: nowhere for a door.
         case noDoor(String)
 
@@ -304,6 +306,9 @@ enum HouseLayout {
             case .noWayIn(let room):
                 if moving == room { return "The \(HouseLayout.name(room).lowercased()) has to touch another room, to have a door." }
                 return "That would leave the \(HouseLayout.name(room).lowercased()) on its own, with no door."
+            case .offLanding(let room):
+                if moving == room { return "Upstairs, it has to touch the landing: over the hall, where the stairs come up." }
+                return "That would leave the \(HouseLayout.name(room).lowercased()) on its own upstairs."
             case .noDoor(let room):
                 // Whoever's moving it is told what to do about it: things stand against the wall it's been put to.
                 if moving == room { return "No door fits in that wall: things stand against it. Slide it along, or turn it." }
@@ -366,7 +371,7 @@ enum HouseLayout {
                 let touching = squares[lost]!.contains { c in
                     [(1, 0), (-1, 0), (0, 1), (0, -1)].contains { others.contains(HouseCell(x: c.x + $0.0, z: c.z + $0.1)) }
                 }
-                return touching ? .noDoor(lost) : .noWayIn(lost)
+                return touching ? .noDoor(lost) : floor == 1 ? .offLanding(lost) : .noWayIn(lost)
             }
         }
         return nil
@@ -382,10 +387,12 @@ enum HouseLayout {
 
     /// The nearest place to where a room would be in the house as it comes
     /// that it can go, with the rest where they are. Nil if there's nowhere.
-    static func place(for room: String, in placed: [String: HousePlot], field: Bool) -> HousePlot? {
+    /// `on`, only that floor; `near`, as near to there as can be (not to where it comes).
+    static func place(for room: String, in placed: [String: HousePlot], field: Bool, on only: Int? = nil, near: HousePlot? = nil) -> HousePlot? {
         // (A thing of the yard: the back of their land, off to the west.)
-        let wish = home[room] ?? (yard(room) ? HousePlot(1, north(field: field) + 1) : HousePlot(8, back + 8))
-        let levels = room == basement ? [-1] : yard(room) ? [0] : wish.floor == 1 ? [1, 0] : [0, 1]
+        let wish = near ?? home[room] ?? (yard(room) ? HousePlot(1, north(field: field) + 1) : HousePlot(8, back + 8))
+        var levels = room == basement ? [-1] : yard(room) ? [0] : wish.floor == 1 ? [1, 0] : [0, 1]
+        if let only { levels = levels.filter { $0 == only } }
         let (w, d) = (shape(room).width, shape(room).depth)
         var tries: [(Int, HousePlot)] = []
         for (rank, floor) in levels.enumerated() {
@@ -408,6 +415,8 @@ enum HouseLayout {
             taken[p.floor, default: []].formUnion(cells(other, p))
             if p.floor == 0, !shape(other).roofless { roofed.formUnion(cells(other, p)) }
         }
+        // (The first room upstairs brings the landing with it, over the hall: that's what it has to touch.)
+        if let entry = others[hall], others[landing] == nil { taken[1, default: []].formUnion(cells(landing, HousePlot(entry.x, entry.z, floor: 1, turn: entry.turn))) }
         for (_, p) in tries.sorted(by: { $0.0 < $1.0 }) {
             let own = cells(room, p), there = taken[p.floor] ?? []
             if own.contains(where: there.contains) { continue }

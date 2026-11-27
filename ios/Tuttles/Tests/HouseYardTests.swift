@@ -292,6 +292,56 @@ final class HouseYardTests: XCTestCase {
         other.coins = 0
     }
 
+    func testTheFirstRoomUpstairsGoesByTheLandingAndSaysSo() throws {
+        // A hall, a bedroom, a living room and a kitchen downstairs; nothing upstairs yet, so no landing.
+        var state = HouseState()
+        state.coins = 20_000
+        state.rooms = ["bedroom", "living", "kitchen"]
+        state.settle()
+        XCTAssertNil(state.plot(of: "landing"))
+        // Over the far end of the living room, away from the hall: it's told what it has to touch.
+        let away = HousePlot(6, 14, floor: 1, turn: 1)
+        let trouble = try XCTUnwrap(state.problem(putting: "bathroom", at: HousePlot(6, 14, floor: 1)))
+        XCTAssertEqual(trouble, .offLanding("bathroom"))
+        XCTAssertEqual(trouble.message(moving: "bathroom"), "Upstairs, it has to touch the landing: over the hall, where the stairs come up.")
+        // Asked for somewhere upstairs near where it's held, it's given a place that works: by the landing.
+        let found = try XCTUnwrap(state.place(for: "bathroom", on: 1, near: away))
+        XCTAssertEqual(found.floor, 1)
+        XCTAssertNil(state.problem(putting: "bathroom", at: found))
+        XCTAssertTrue(state.unlock(try XCTUnwrap(HouseCatalog.room("bathroom")), at: found))
+        XCTAssertNotNil(state.plot(of: "landing"))
+        // And a room that comes upstairs (the den) is found a place up there to start with, before there's a landing.
+        var fresh = HouseState()
+        fresh.rooms = ["bedroom", "living", "kitchen"]
+        fresh.settle()
+        XCTAssertEqual(fresh.place(for: "den")?.floor, 1)
+
+        // On the stage: picked up and sent upstairs with the floor picker, it lands where it can go, and where the
+        // stairs come up is marked (there's a sign over the hall) since there's no landing to see yet.
+        var mine = HouseState()
+        mine.coins = 20_000
+        mine.rooms = ["bedroom", "living", "kitchen"]
+        mine.settle()
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        stage.setDecorating(true)
+        stage.show([HouseShown(kid: "me", name: "Me", mine: true, state: mine, look: .plain)])
+        stage.hold("bathroom")
+        XCTAssertEqual(stage.held?.plot.floor, 0)
+        stage.setFloor(1)
+        let held = try XCTUnwrap(stage.held)
+        XCTAssertEqual(held.plot.floor, 1)
+        XCTAssertNil(held.trouble, held.trouble ?? "")
+        var signs = 0
+        stage.scene.rootNode.enumerateHierarchy { node, _ in if node.constraints?.contains(where: { $0 is SCNBillboardConstraint }) == true, node.renderingOrder == 95 { signs += 1 } }
+        XCTAssertEqual(signs, 1)
+        // Back downstairs, the mark's gone.
+        stage.setFloor(0)
+        signs = 0
+        stage.scene.rootNode.enumerateHierarchy { node, _ in if node.renderingOrder == 95 { signs += 1 } }
+        XCTAssertEqual(signs, 0)
+    }
+
     func testNoDoorIsEverWhereFurnitureStands() {
         for room in HouseCatalog.rooms where !HouseLayout.shape(room.id).outdoor {
             let shape = HouseLayout.shape(room.id)

@@ -118,6 +118,14 @@ struct HouseState: Codable, Equatable {
         return HouseLayout.place(for: room, in: layout.filter { $0.key != HouseLayout.landing }, field: field)
     }
 
+    /// The nearest place to where a room's being held that it could go on a floor, if there is one.
+    func place(for room: String, on floor: Int, near: HousePlot) -> HousePlot? {
+        var others = layout.filter { $0.key != HouseLayout.landing && $0.key != room }
+        // (With that room out of it, there may be nothing upstairs any more.)
+        others = HouseLayout.standing(Array(others.keys), others).filter { $0.key != HouseLayout.landing }
+        return HouseLayout.place(for: room, in: others, field: field, on: floor, near: near)
+    }
+
     /// What would be wrong with the house with a room put there (one of theirs moved, or one being bought).
     func problem(putting room: String, at p: HousePlot) -> HouseLayout.Problem? {
         var trial = plots.compactMapValues { HousePlot($0) }
