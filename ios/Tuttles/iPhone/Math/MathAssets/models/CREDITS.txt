@@ -34,3 +34,21 @@ The house's rooms (Tuttles/iPhone/House) also use, all public domain
                 inside doors and for the pieces HouseKit.better names.
   ../house3d/   Floor, wood, plaster, cloth, stone and grass textures from
                 Poly Haven (polyhaven.com), resized to 1024 pixels.
+
+The yard, the game room and the street (2026-11-27) use more of Kenney's
+packs, all public domain (CC0 1.0), fetched from the same copies in
+github.com/series-ai/jam-ready-assets:
+
+  arcade/       Mini Arcade: the arcade cabinet, pinball, air hockey, the claw
+                machine and the other machines of the game room
+  cars/         Car Kit: what's parked on a driveway, and a traffic cone
+  skate/        Mini Skate: the half-pipe, rails, a grind box and a skateboard
+  camp/         Survival Kit: the tent, fire ring, log, chest, workbench
+  holiday/      Holiday Kit: the snowman and the decorated tree that stand
+                outside Mom & Dad's in December
+  furniture/    Furniture Kit: twenty-two more pieces (the bar, the glass
+                tables, the corner sofa, wall lamp, pillows)
+
+Everything else new (the pool, the ball field, the tree house, the pool
+table, the drum kit, the porches, Charlie and Pippy) is built in code:
+HouseYardProps.swift, HouseFunProps.swift and HouseStreetProps.swift.

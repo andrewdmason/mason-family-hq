@@ -297,9 +297,10 @@ in each room fixed spots, each with its own things to choose between.
   you're in, and it keeps the walls at its back, so what hangs on them
   shows. A tap on a house or a room only flies there.
   At the bottom of the screen are two buttons that keep their corners
-  wherever the camera is. On the left, always, Rooms (`HouseRoomSheet`): a
-  card to move a room from or add one, which from anywhere flies to the
-  kid's own house. On the right, while a room of theirs is in focus,
+  wherever the camera is. On the left, always, Build (`HouseRoomSheet`): a
+  card to move a room or a yard thing from, add a room, buy the back field or
+  add something to the yard, which from anywhere flies to the kid's own
+  house. On the right, while a room of theirs is in focus,
   "Decorate kitchen", the only thing in red. The floors of the open house
   are a short column up the right edge (2, G, B): the one picked is the one
   shown, with those under it shut and lidded and those over it gone. In a
@@ -311,13 +312,60 @@ in each room fixed spots, each with its own things to choose between.
   in the room, which says what goes there (`HouseSpot.symbol`): a white tag
   with a picture and a "+" where nothing's been chosen, a small dot where
   something has. A tab or a marker changes what the card's for, and a tap
-  anywhere else puts it away. With no card up, a tap on a thing in their
-  room brings it up on that thing's spot.
+  anywhere else puts it away. With no card up, a tap on a thing in the room
+  makes it do something (see the family, below); it doesn't bring the card up.
   A room being added or moved is in hand (`HouseStage.hold`): it shows
   where it would stand, with the two walls its things are against, green
   where it can go and red where it can't (and why is said at the top), and
   goes with a finger a metre at a time. The bar then has Cancel, a button
   to turn it a quarter, and in red "Put it here".
+- The land a house can have is twenty metres by thirty (`HouseLayout.width`,
+  `depth`): the lot, on the street, and behind it the back field, ten metres
+  more, which is rough grass until it's bought (`HouseState.land`,
+  `HouseCatalog.fieldPrice`; Build asks before it takes the coins). Where
+  things stand is measured from the north-west corner of all of it
+  (`HouseState.grid` 2); a house kept before there was a field is moved ten
+  metres south as it's read.
+- Out on the grass go the things of the yard (`HouseCatalog.yard`, in
+  `HouseCatalogMore.swift`): a deck, a vegetable patch, a driveway with a car
+  on it, a basketball court, a campsite, a trampoline, a playground, a skate
+  park, a tree house, a swimming pool and a ball field. Each is placed like a
+  room (picked up, dragged, turned) but has no walls, needs no door, only
+  goes on the ground, and has a price of its own that doesn't make the next
+  room dearer (`HouseShape.yard`, `HouseRoom.coins`). Its first spot is the
+  thing itself, which comes with it; its others are what goes on or round it
+  (the pool's float, slide and lounger). They're drawn whether the house is
+  open or shut. Most are built in code (`HouseYardProps.swift`); cars, the
+  half-pipe and the tent are Kenney's models (`HouseItem.Look.model`).
+- Seven more rooms are bought like the first ones: a game room (pinball, air
+  hockey, a claw machine, a pool table, a racing rig), a home cinema, a
+  music room, a library, a workshop, a loft and, for gems, a secret room.
+  What's in them that isn't a kit piece is built in `HouseFunProps.swift`.
+- Every room indoors can have wallpaper (`HouseItem.Look.paper`, drawn in
+  `HousePatterns.swift`) and five more floors, and there are more woods and
+  fabrics. Rooms have windows in their north and west walls too, wherever
+  nothing in the catalogue stands against that metre (`HouseLayout.windows(behind:)`).
+  Outside, as well as the roof, walls and front door, a house chooses its
+  fence, a porch, what's planted under the front windows, something by the
+  road and in the front garden, how its windows are made (panes, shutters,
+  boxes) and which doors it has indoors (`HouseCatalog.outsideMore`,
+  `HouseStreetProps.swift`). Through December the roofs have snow on them and
+  every door a wreath and lights, and in the second half of October there
+  are pumpkins on the step (`HouseSeason`, by the phone's date).
+- Whichever house is open has the family in it (`HouseLife.swift`): the
+  kids, Mom and Dad, Charlie the greyhound and Pippy the cat. They walk from
+  room to room through the doors, up the stairs, out of the front door and
+  round to the yard, sit on what can be sat on and stand at what can be
+  used, bounce on the trampoline and stand in the pool. Nobody needs
+  anything and nothing's kept. A tap on one of them gets a hop and their
+  name; a tap on a thing in the room in focus makes it jump and brings
+  whoever's nearest over to it (a pet says its name instead, which is theirs
+  to give it on the pet's card: `HouseState.names`). Changing a thing is
+  only the red button's job now.
+- One thing isn't bought: the shelf over the bed (`HouseEarned.swift`), with
+  a book for every fifteen words they know by heart in Vocab, a cup for
+  every five days they've reached their goal in Math, and how long their
+  streak is. What's on it goes up with the house (`HouseState.feats`).
 - The houses stand in a neighbourhood after the family's own in Berkeley
   (`HouseTown.swift`): Avalon Ave winding from the turning circle at its west
   end out to Oak Knoll, inside four straight streets (Kelsey, Garber, Oak
@@ -330,7 +378,9 @@ in each room fixed spots, each with its own things to choose between.
   anyone else (the demo, a parent as themselves) gets the first lot free.
   Five neighbours' houses (shut, nobody's), the big place with the pool and
   Monkey Island Park fill it out, and three lots are bare grass, for buying
-  a second house on later (not built yet). The camera looks from the
+  a second house on later (not built yet). Each of the family's lots has
+  room behind it for its back field; Mom & Dad's has theirs already, with a
+  ball field, a pool and the rest in it, to show what one's for. The camera looks from the
   south-east, so front doors are on the south: houses north of Avalon open
   onto it, those south of it onto Russell. Each house has its fence and
   trees at the back (`HouseLand.swift`) and a path from its door to the
@@ -368,7 +418,16 @@ in each room fixed spots, each with its own things to choose between.
   its third), `--house-decorate` with a room opens its card, `--house-outside` the card
   for the outside,
   `--house-hour 21.5` makes it half past nine at night, and `--house-sizes`
-  prints each kit model's size.
+  prints each kit model's size. (`--house-fill` also gives the back field and
+  every yard thing there's room for.) `--house-date 12-20` makes it that day
+  of the year, for the snow and the pumpkins; `--house-feats 9` puts nine
+  days' worth on the shelf over the bed; `--house-at parents` flies to a
+  house (`me` for their own) and `--house-far 40`, `--house-quarters 2`,
+  `--house-east 4`, `--house-south -6` say where from; and
+  `--house-gallery 0` sets out everything built in code or from the newer
+  packs, eighteen to a page with their names (`99`: Charlie and Pippy). A
+  new install draws nothing for ten seconds or so the first time, while the
+  simulator works out how to draw it.
 
 ## Tuttles (Mac)
 

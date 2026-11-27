@@ -40,10 +40,14 @@ struct HouseItem: Identifiable, Hashable {
         case window(String)
         /// The walls' colour, and the skirting's.
         case paint(String, String)
+        /// Wallpaper: its pattern, the paper's colour and the print's, and the skirting's.
+        case paper(String, String, String, String)
         /// The floor: its pattern and two colours.
         case flooring(String, String, String)
-        /// Something built in code (HouseProps.swift).
+        /// Something built in code (HouseProps.swift, HouseYardProps.swift, HouseFunProps.swift).
         case made(String)
+        /// A model from another pack, by its folder and name, grown by that much.
+        case model(String, String, Float)
         /// The wood of everything in the room: its colour, and its darker parts'. `glow`, it shines a little.
         case wood(String, String, glow: Double = 0)
         /// The cloth of everything in the room.
@@ -56,6 +60,10 @@ struct HouseItem: Identifiable, Hashable {
         case cladding(String, String, String)
         /// The front door's colour; `round`, a round one.
         case door(String, round: Bool = false)
+        /// The fence round the land: how it's made ("picket", "rail", "hedge", "stone", "none") and its colour.
+        case fence(String, String)
+        /// A way something about the house is made: its inside doors (a model's name), its windows ("plain", "grid", "shutters", "boxes").
+        case style(String)
     }
 
     let id: String
@@ -111,6 +119,8 @@ struct HouseRoom: Identifiable, Hashable {
     /// Where whoever lives there stands: a bit of floor nothing is put on.
     let stand: [Float]
     let spots: [HouseSpot]
+    /// Its own price in coins: a thing for the yard. 0 for a room, which costs what the next room costs.
+    var coins = 0
 
     func spot(_ id: String) -> HouseSpot? { spots.first { $0.id == id } }
 }
@@ -129,13 +139,15 @@ enum HouseCatalog {
         return prices[min(max(owned, 0), prices.count - 1)]
     }
 
-    static func room(_ id: String) -> HouseRoom? { rooms.first { $0.id == id } ?? fixtures.first { $0.id == id } }
+    static func room(_ id: String) -> HouseRoom? { byID[id] }
+
+    private static let byID: [String: HouseRoom] = Dictionary(uniqueKeysWithValues: everything.map { ($0.id, $0) })
 
     static func item(_ id: String) -> HouseItem? { items[id] }
 
     private static let items: [String: HouseItem] = {
         var all: [String: HouseItem] = [:]
-        for room in rooms + fixtures + [outside] { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
+        for room in everything + [outside] { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
         return all
     }()
 
@@ -144,25 +156,50 @@ enum HouseCatalog {
 
     // MARK: Making them
 
-    private static func spot(_ room: String, _ id: String, _ title: String, _ place: HouseSpot.Place,
+    static func spot(_ room: String, _ id: String, _ title: String, _ place: HouseSpot.Place,
                              _ items: [(String, String, String, Int, Int, HouseItem.Look)]) -> HouseSpot {
         HouseSpot(id: id, title: title, place: place, items: items.map {
             HouseItem(id: "\(room).\(id).\($0.0)", name: $0.1, blurb: $0.2, coins: $0.3, gems: $0.4, look: $0.5)
         })
     }
 
-    private static func walls(_ room: String, _ first: (String, String, String), _ more: [(String, String, String, String, Int)]) -> HouseSpot {
+    static func walls(_ room: String, _ first: (String, String, String), _ more: [(String, String, String, String, Int)]) -> HouseSpot {
         spot(room, "walls", "Walls", .walls,
-             [("plain", first.0, "How it came.", 0, 0, .paint(first.1, first.2))] + more.map { ($0.0.lowercased().replacingOccurrences(of: " ", with: "-"), $0.0, $0.1, $0.4, 0, .paint($0.2, $0.3)) })
+             [("plain", first.0, "How it came.", 0, 0, .paint(first.1, first.2))] + more.map { ($0.0.lowercased().replacingOccurrences(of: " ", with: "-"), $0.0, $0.1, $0.4, 0, .paint($0.2, $0.3)) }
+             + (HouseLayout.shape(room).outdoor ? [] : papers))
     }
 
-    private static func floors(_ room: String, _ first: (String, String, String, String), _ more: [(String, String, String, String, String, Int)]) -> HouseSpot {
+    /// Wallpaper, the same in every room with walls: (id, name, blurb, coins, gems, look).
+    private static let papers: [(String, String, String, Int, Int, HouseItem.Look)] = [
+        ("paper-pinstripe", "Pinstripe Paper", "Makes the room stand up straight.", 90, 0, .paper("stripes", "f3ead2", "b9cbe0", "c9b78f")),
+        ("paper-candy", "Candy Stripe Paper", "Do not lick the walls either.", 110, 0, .paper("stripes", "f6f1e4", "ef8fa6", "d9c9b0")),
+        ("paper-dots", "Polka Dot Paper", "Count them. There's one more each time.", 110, 0, .paper("dots", "f6efd9", "5b86c4", "c9b78f")),
+        ("paper-diamonds", "Diamond Paper", "Like a jumper, for a room.", 130, 0, .paper("diamonds", "e9e2d0", "b5483b", "8a6a4a")),
+        ("paper-clouds", "Cloud Paper", "They drift a little, on windy days.", 140, 0, .paper("clouds", "a9d4ee", "ffffff", "7fa9c4")),
+        ("paper-stars", "Star Paper", "One of them isn't printed on.", 150, 0, .paper("stars", "1b2148", "ffe9a3", "0f1330")),
+        ("paper-jungle", "Jungle Paper", "Something moves behind the leaves when the light's off.", 160, 0, .paper("leaves", "dfe9cf", "4f8a4a", "8fa77a")),
+        ("paper-panels", "Wood Panelling", "A cabin, as far as the room knows.", 150, 0, .paper("panels", "a8733f", "7c5233", "5a3a22")),
+        ("paper-brick", "Bare Brick", "What's under the plaster, or a very good drawing of it.", 150, 0, .paper("bricks", "b5654a", "dccbb6", "6b4a3a")),
+        ("paper-rockets", "Rocket Paper", "The rockets are a little further along each morning.", 0, 3, .paper("rockets", "151a3a", "ff7a3c", "0d1026")),
+    ]
+
+    /// Floors, the same in every room indoors.
+    private static let tiles: [(String, String, String, Int, Int, HouseItem.Look)] = [
+        ("wide-planks", "Wide Planks", "From a ship, they say. Which ship, they don't.", 100, 0, .flooring("planks", "8a5a3c", "6b432b")),
+        ("hexagons", "Hexagon Tiles", "Bees would approve.", 120, 0, .flooring("hex", "e9e4d8", "9aa0a8")),
+        ("harlequin", "Harlequin", "A floor in fancy dress.", 130, 0, .flooring("harlequin", "f1ede2", "b5483b")),
+        ("terrazzo", "Terrazzo", "A hundred little stones. One's a tooth.", 140, 0, .flooring("terrazzo", "ece6da", "d98e6b")),
+        ("marble", "Marble", "Cold, and proud of it.", 180, 0, .flooring("marble", "f2f0ec", "c9c5bd")),
+    ]
+
+    static func floors(_ room: String, _ first: (String, String, String, String), _ more: [(String, String, String, String, String, Int)]) -> HouseSpot {
         spot(room, "floor", "Floor", .flooring,
-             [("plain", first.0, "How it came.", 0, 0, .flooring(first.1, first.2, first.3))] + more.map { ($0.0.lowercased().replacingOccurrences(of: " ", with: "-"), $0.0, $0.1, $0.5, 0, .flooring($0.2, $0.3, $0.4)) })
+             [("plain", first.0, "How it came.", 0, 0, .flooring(first.1, first.2, first.3))] + more.map { ($0.0.lowercased().replacingOccurrences(of: " ", with: "-"), $0.0, $0.1, $0.5, 0, .flooring($0.2, $0.3, $0.4)) }
+             + (HouseLayout.shape(room).outdoor ? [] : tiles))
     }
 
     /// The wood of a room's things: as the kit makes it, or one of these. The same in every room that has it.
-    private static func wood(_ room: String) -> HouseSpot {
+    static func wood(_ room: String) -> HouseSpot {
         spot(room, "wood", "Wood", .wood, [
             ("plain", "Pine", "How it came.", 0, 0, .wood("e69963", "ad754c")),
             ("birch", "Birch", "Pale. Shows where the mugs have been.", 50, 0, .wood("ecd3a4", "cfb07c")),
@@ -172,12 +209,17 @@ enum HouseCatalog {
             ("green", "Painted Green", "The colour of a shed that's seen things.", 80, 0, .wood("6fa37a", "55865f")),
             ("red", "Painted Red", "Fast, for furniture.", 90, 0, .wood("c9503f", "a23c2e")),
             ("black", "Ebony", "Every piece looks like a piano.", 120, 0, .wood("3a3839", "262425")),
+            ("cherry", "Cherry", "Redder every year, like someone embarrassed slowly.", 90, 0, .wood("a8553a", "7f3c28")),
+            ("drift", "Driftwood", "Washed up. Doing fine.", 80, 0, .wood("b9b2a2", "948d7d")),
+            ("mint", "Painted Mint", "Tastes of nothing. Checked.", 80, 0, .wood("a9dcc4", "83bda3")),
+            ("yellow", "Painted Yellow", "The room wakes up before you do.", 80, 0, .wood("f2cf4a", "d0ab2a")),
+            ("pink", "Painted Pink", "Somebody decided, and it stayed decided.", 80, 0, .wood("f2a3bd", "d47f9c")),
             ("gold", "Gold", "Solid. The floor is doing its best.", 0, 4, .wood("f5c542", "d9a62a", glow: 0.25)),
         ])
     }
 
     /// The cloth of a room's things: sofas, cushions, covers.
-    private static func fabric(_ room: String) -> HouseSpot {
+    static func fabric(_ room: String) -> HouseSpot {
         spot(room, "fabric", "Fabric", .fabric, [
             ("plain", "Red", "How it came.", 0, 0, .fabric("ef5e57")),
             ("cream", "Cream", "Stays clean exactly as long as you watch it.", 50, 0, .fabric("eadfc6")),
@@ -187,13 +229,19 @@ enum HouseCatalog {
             ("pink", "Pink", "Soft on purpose.", 70, 0, .fabric("f08ab0")),
             ("plum", "Plum", "For sitting and having opinions.", 80, 0, .fabric("7a4a8f")),
             ("charcoal", "Charcoal", "Serious cushions.", 90, 0, .fabric("4a4d55")),
+            ("teal", "Teal", "The colour of a pool with the lights on.", 70, 0, .fabric("2f9a94")),
+            ("orange", "Orange", "Can be seen from the stairs.", 70, 0, .fabric("f08a3c")),
+            ("lilac", "Lilac", "Smells of it, a bit. Or you think it does.", 70, 0, .fabric("b79be0")),
+            ("denim", "Denim", "Goes with everything you own.", 80, 0, .fabric("5d7fb5")),
+            ("white", "White", "Brave.", 90, 0, .fabric("f4f1ea")),
+            ("lime", "Lime", "Sharp.", 80, 0, .fabric("a8d94a")),
             ("glow", "Glow in the Dark", "Green, after dark. You'll find the sofa. It'll find you.", 0, 3, .fabric("b9f5a8", glow: 0.55)),
         ])
     }
 
     // MARK: The rooms
 
-    static let rooms: [HouseRoom] = [bedroom, living, kitchen, bathroom, den, garden, basement, observatory]
+    static let rooms: [HouseRoom] = [bedroom, living, kitchen, bathroom, den, garden, basement, observatory] + more
 
     private static let bedroom = HouseRoom(
         id: "bedroom", name: "Bedroom", blurb: "Where it starts. A bed, and room for more.", cell: [0, 0, 0], gems: 0, stand: [2.0, 1.6],
@@ -259,6 +307,10 @@ enum HouseCatalog {
                 ("window", "Window", "A view of outside, where the weather is.", 60, 0, .window("day")),
                 ("round", "Round Window", "Like a ship's, if the house were going anywhere.", 100, 0, .window("round")),
                 ("stars", "Night Window", "It's night out of this one whatever the time.", 0, 4, .window("night")),
+            ]),
+            // (Not bought: what's on it is won. HouseEarned.swift.)
+            spot("bedroom", "earned", "Your shelf", .wall(left: false, 3.0, 2.3), [
+                ("shelf", "Your Shelf", "Fills up as you practise: a book for every 15 words you know by heart, a cup for every 5 days you reach your goal in Math.", 0, 0, .made("earned-shelf")),
             ]),
             spot("bedroom", "pet", "Pet", .pet(2.9, 3.4), [
                 ("cat", "Cat", "Sits where you were about to.", 0, 5, .pet("animal-cat")),
@@ -786,5 +838,5 @@ enum HouseCatalog {
                 ("flamingos", "Flamingos", "Two. There were three.", 80, 0, .made("flamingos")),
                 ("saucer", "Flying Saucer, Parked", "Somebody's visiting. They've been in there a while.", 0, 6, .made("saucer")),
             ]),
-        ])
+        ] + outsideMore)
 }

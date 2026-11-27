@@ -233,6 +233,8 @@ final class MathStore {
 
     var answeredToday: Int { saved.days[Self.day()] ?? 0 }
     var goalReachedToday: Bool { saved.wallet.goalDays.last == Self.day() }
+    /// How many days the goal's been reached, ever.
+    var goalDays: Int { saved.wallet.goalDays.count }
 
     /// Days in a row the goal's been reached, up to today (or yesterday, if today's still going).
     var streak: Int {

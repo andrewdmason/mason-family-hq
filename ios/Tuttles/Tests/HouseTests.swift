@@ -31,19 +31,22 @@ final class HouseTests: XCTestCase {
         }
         // The room they start in has a bed in it.
         XCTAssertNotNil(HouseCatalog.room(HouseCatalog.first)?.spot("bed")?.starter)
-        XCTAssertEqual(rooms.filter { $0.gems > 0 }.map(\.id), ["basement", "observatory"])
+        XCTAssertEqual(rooms.filter { $0.gems > 0 }.map(\.id), ["basement", "observatory", "secret"])
         // Where the catalogue puts them, all together, is a house that holds together.
         // Every room has a shape of its own, and with every room where it comes the house holds together.
         for room in rooms + HouseCatalog.fixtures { XCTAssertNotNil(HouseLayout.shapes[room.id], room.id) }
-        XCTAssertNil(HouseLayout.problem(HouseLayout.standing(rooms.map(\.id), HouseLayout.home)))
+        for room in HouseCatalog.yard { XCTAssertEqual(HouseLayout.shapes[room.id]?.yard, true, room.id) }
+        XCTAssertNil(HouseLayout.problem(HouseLayout.standing(Array(HouseLayout.home.keys), HouseLayout.home), field: false))
     }
 
     func testEveryModelTheCatalogueAsksForIsThere() {
         var wanted = Set<String>()
-        for room in HouseCatalog.rooms { for spot in room.spots { for item in spot.items {
+        for room in HouseCatalog.everything + [HouseCatalog.outside] { for spot in room.spots { for item in spot.items {
             switch item.look {
-            case .kit(let name, _): wanted.insert("furniture/\(name)")
+            // (A piece named as the other pack names it, with a capital, is that pack's own.)
+            case .kit(let name, _): wanted.insert("\(name.first?.isUppercase == true ? "house3d" : "furniture")/\(name)")
             case .stack(let a, let b): wanted.formUnion(["furniture/\(a)", "furniture/\(b)"])
+            case .model(let folder, let name, _): wanted.insert("\(folder)/\(name)")
             case .food(let name): wanted.insert("food/\(name)")
             case .tree(let name): wanted.insert("city/\(name)")
             case .pet(let name): wanted.insert("pets/\(name)")
@@ -150,21 +153,21 @@ final class HouseTests: XCTestCase {
         let prices = (1..<coinRooms.count).map { HouseCatalog.roomPrice(owned: $0) }
         XCTAssertEqual(prices, prices.sorted())
         XCTAssertTrue(prices.allSatisfy { (day * 2...day * 9).contains($0) }, "\(prices)")
-        // Something to buy every day, in every room.
+        // Something to buy every day, in every room. (The days are counted over the first six rooms, which
+        // are what the weeks to the test are for; the rooms after them and the yard are for after it.)
         var cheapest = 0, best = 0
-        for room in coinRooms {
+        for (n, room) in coinRooms.enumerated() {
             for spot in room.spots {
                 let coins = spot.items.filter { $0.coins > 0 }.map(\.coins)
                 guard let low = coins.min(), let high = coins.max() else { continue }
                 XCTAssertLessThanOrEqual(low, day, "\(room.id).\(spot.id)")
-                cheapest += low
-                best += high
+                if n < 6 { cheapest += low; best += high }
             }
         }
         // Six rooms with something in every spot is most of the days to the
         // test, for a kid who never misses one; the best of everything is
         // more than there are, so there's always something out of reach.
-        let rooms = prices.reduce(0, +)
+        let rooms = prices.prefix(5).reduce(0, +)
         XCTAssertTrue((34...46).contains((rooms + cheapest) / day), "\((rooms + cheapest) / day) days")
         XCTAssertTrue((50...66).contains((rooms + best) / day), "\((rooms + best) / day) days")
 
@@ -213,29 +216,31 @@ final class HouseTests: XCTestCase {
     // MARK: Where rooms go
 
     func testWhatHoldsTogether() {
-        func problem(_ rooms: [String: HousePlot]) -> HouseLayout.Problem? { HouseLayout.problem(HouseLayout.standing(Array(rooms.keys), rooms)) }
+        func problem(_ rooms: [String: HousePlot]) -> HouseLayout.Problem? { HouseLayout.problem(HouseLayout.standing(Array(rooms.keys), rooms), field: false) }
         let hall = HouseLayout.home[HouseLayout.hall]!, bedroom = HouseLayout.home["bedroom"]!
         // A hall and a bedroom off it: where every house starts.
         XCTAssertNil(problem(["bedroom": bedroom]))
-        XCTAssertEqual(hall, HousePlot(9, 10))
+        XCTAssertEqual(hall, HousePlot(9, 20))
         // Onto the hall; off the lot; away from everything, with no door into it.
-        XCTAssertEqual(problem(["bedroom": HousePlot(8, 10)]), .overlap("bedroom", "hall"))
-        XCTAssertEqual(problem(["bedroom": HousePlot(-1, 10)]), .offTheLot("bedroom"))
-        XCTAssertEqual(problem(["bedroom": HousePlot(0, 0)]), .noWayIn("bedroom"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(8, 20)]), .overlap("bedroom", "hall"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(-1, 20)]), .offTheLot("bedroom"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(0, 10)]), .noWayIn("bedroom"))
+        // The field behind isn't theirs yet.
+        XCTAssertEqual(problem(["bedroom": HousePlot(0, 9)]), .offTheLot("bedroom"))
         // Touching the hall, but along a wall of the hall's with the stairs against it: still no door.
-        XCTAssertEqual(problem(["bedroom": HousePlot(4, 11)]), .noWayIn("bedroom"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(4, 21)]), .noWayIn("bedroom"))
         // Upstairs with nothing under it; over a room, and joined to the landing.
-        XCTAssertEqual(problem(["bedroom": bedroom, "den": HousePlot(12, 10, floor: 1)]), .nothingUnder("den"))
+        XCTAssertEqual(problem(["bedroom": bedroom, "den": HousePlot(12, 20, floor: 1)]), .nothingUnder("den"))
         XCTAssertNil(problem(["bedroom": bedroom, "living": HouseLayout.home["living"]!, "den": HouseLayout.home["den"]!]))
         // Nothing stands on the garden, which has no roof.
-        XCTAssertEqual(problem(["bedroom": bedroom, "garden": HousePlot(12, 9), "den": HousePlot(12, 10, floor: 1)]), .nothingUnder("den"))
+        XCTAssertEqual(problem(["bedroom": bedroom, "garden": HousePlot(12, 19), "den": HousePlot(12, 20, floor: 1)]), .nothingUnder("den"))
         // The basement's under the stairs, and nothing else goes down there.
         XCTAssertNil(problem(["bedroom": bedroom, "basement": HouseLayout.home["basement"]!]))
-        XCTAssertEqual(problem(["bedroom": bedroom, "basement": HousePlot(0, 0, floor: -1)]), .underStairs)
-        XCTAssertEqual(problem(["bedroom": bedroom, "basement": HousePlot(7, 10)]), .wrongFloor("basement"))
-        XCTAssertEqual(problem(["bedroom": HousePlot(4, 10, floor: -1)]), .wrongFloor("bedroom"))
+        XCTAssertEqual(problem(["bedroom": bedroom, "basement": HousePlot(0, 10, floor: -1)]), .underStairs)
+        XCTAssertEqual(problem(["bedroom": bedroom, "basement": HousePlot(7, 20)]), .wrongFloor("basement"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(4, 20, floor: -1)]), .wrongFloor("bedroom"))
         // Something built in front of the front door.
-        XCTAssertEqual(problem(["bedroom": HousePlot(8, 15, turn: 2)]), .frontDoor)
+        XCTAssertEqual(problem(["bedroom": HousePlot(8, 25, turn: 2)]), .frontDoor)
     }
 
     func testPuttingRoomsWhereTheyLike() throws {
@@ -258,9 +263,9 @@ final class HouseTests: XCTestCase {
         XCTAssertEqual(state.plot(of: "living"), first)
         XCTAssertEqual(state.coins, 5_000 - 800)
         // Moved, free, to where it still has a door; not to where it wouldn't.
-        XCTAssertFalse(state.move("living", to: HousePlot(0, 0)))
+        XCTAssertFalse(state.move("living", to: HousePlot(0, 10)))
         XCTAssertEqual(state.plot(of: "living"), first)
-        let turned = HousePlot(12, 9, turn: 1)
+        let turned = HousePlot(12, 19, turn: 1)
         if state.problem(putting: "living", at: turned) == nil {
             XCTAssertTrue(state.move("living", to: turned))
             XCTAssertEqual(state.plot(of: "living"), turned)
@@ -276,8 +281,8 @@ final class HouseTests: XCTestCase {
         over.floor = 1
         XCTAssertEqual(state.plot(of: "landing"), over)
         // The living room can't go while the den's on top of it; and they're told which.
-        let away = HousePlot(12, 9, turn: 1)
-        XCTAssertEqual(state.problem(putting: "living", at: away)?.message(moving: "living"), "The den is on top of it. Move that first.")
+        let away = HousePlot(12, 19, turn: 1)
+        XCTAssertEqual(state.problem(putting: "living", at: away)?.message(moving: "living"), "The den is upstairs, on top of it. Move that one first.")
         // Where they are survives being saved and read back.
         let back = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(state))
         XCTAssertEqual(back.plots, state.plots)
@@ -289,7 +294,7 @@ final class HouseTests: XCTestCase {
         let old = #"{"rooms":["bedroom","living","kitchen","den","basement"],"economy":2,"cells":{"bedroom":[0,0,0],"living":[1,0,0],"kitchen":[0,0,1],"den":[0,1,0],"basement":[0,-1,0]}}"#
         let state = try JSONDecoder().decode(HouseState.self, from: Data(old.utf8))
         XCTAssertEqual(Set(state.layout.keys), ["hall", "landing", "bedroom", "living", "kitchen", "den", "basement"])
-        XCTAssertNil(HouseLayout.problem(state.layout))
+        XCTAssertNil(HouseLayout.problem(state.layout, field: state.field))
         XCTAssertEqual(state.plot(of: "basement")?.floor, -1)
         // The old cells are still there, for a phone that hasn't been updated.
         XCTAssertEqual(state.cells["living"], [1, 0, 0])
@@ -298,14 +303,14 @@ final class HouseTests: XCTestCase {
         // One that's been muddled (two rooms in one place) is put right, keeping what it can.
         let muddle = #"{"rooms":["bedroom","living"],"plots":{"hall":[9,10,0,0],"bedroom":[4,10,0,0],"living":[4,10,0,0]}}"#
         let fixed = try JSONDecoder().decode(HouseState.self, from: Data(muddle.utf8))
-        XCTAssertNil(HouseLayout.problem(fixed.layout))
-        XCTAssertEqual(fixed.plot(of: "bedroom"), HousePlot(4, 10))
+        XCTAssertNil(HouseLayout.problem(fixed.layout, field: false))
+        XCTAssertEqual(fixed.plot(of: "bedroom"), HousePlot(4, 20))
         // Every room there is, with none of them placed: they all find somewhere.
         var full = HouseState()
         full.rooms = HouseCatalog.rooms.map(\.id)
         full.plots = [:]
         full.settle()
-        XCTAssertNil(HouseLayout.problem(full.layout))
+        XCTAssertNil(HouseLayout.problem(full.layout, field: full.field))
         XCTAssertEqual(full.layout.count, HouseCatalog.rooms.count + 2)
     }
 
@@ -582,23 +587,25 @@ final class HouseTests: XCTestCase {
     func testNoLotIsOnAStreetOrAnother() {
         let lots = [HouseTown.parentsLot, HouseTown.sebastian, HouseTown.oscar] + HouseTown.spare
         let verge = HouseTown.roadWidth / 2 + HouseTown.walk
+        /// How far north a lot's land goes: to the back of its field, where there's room for one.
+        func top(_ lot: HouseTown.Lot) -> Float { lot.z + (lot.room ? 0 : lot.back) }
         for (i, lot) in lots.enumerated() {
             for other in lots[(i + 1)...] {
-                let apart = lot.x + lot.wide <= other.x || other.x + other.wide <= lot.x || lot.z + lot.deep <= other.z || other.z + other.deep <= lot.z
+                let apart = lot.x + lot.wide <= other.x || other.x + other.wide <= lot.x || lot.z + lot.deep <= top(other) || other.z + other.deep <= top(lot)
                 XCTAssertTrue(apart, "\(lot) is on \(other)")
             }
             // Inside the four streets, and off Avalon and its turning circle all the way along.
             XCTAssertGreaterThan(lot.x, HouseTown.west + verge)
             XCTAssertLessThan(lot.x + lot.wide, HouseTown.east - verge)
-            XCTAssertGreaterThan(lot.z, HouseTown.north + verge)
+            XCTAssertGreaterThan(top(lot), HouseTown.north + verge)
             XCTAssertLessThan(lot.z + lot.deep, HouseTown.south - verge)
             var x = lot.x
             while x <= lot.x + lot.wide {
                 if x >= 0 {
                     let road = HouseTown.avalon(x)
-                    XCTAssertTrue(lot.z + lot.deep <= road - verge || lot.z >= road + verge, "\(lot) is on Avalon at \(x)")
+                    XCTAssertTrue(lot.z + lot.deep <= road - verge || top(lot) >= road + verge, "\(lot) is on Avalon at \(x)")
                 }
-                for z in [lot.z, lot.z + lot.deep] { XCTAssertGreaterThan(hypot(x, z), HouseTown.bulb + HouseTown.walk) }
+                for z in [top(lot), lot.z + lot.deep] { XCTAssertGreaterThan(hypot(x, z), HouseTown.bulb + HouseTown.walk) }
                 x += 1
             }
             // No tree is let onto it, nor in front of it.
@@ -614,12 +621,18 @@ final class HouseTests: XCTestCase {
 
     func testMomAndDadsHouseHoldsTogetherAndIsFull() {
         let state = HouseTown.parents.state
-        XCTAssertEqual(Set(state.rooms), Set(HouseCatalog.rooms.map(\.id)))
-        XCTAssertNil(HouseLayout.problem(state.layout))
-        // Every room where it comes: the house as it's drawn.
-        for room in state.rooms { XCTAssertEqual(state.plot(of: room), HouseLayout.home[room], room) }
-        for room in HouseCatalog.rooms { for spot in room.spots {
-            XCTAssertNotNil(state.item(in: spot, of: room.id), "nothing in \(room.id).\(spot.id)")
+        // The first rooms, three of the newer ones, and the back field with a yard in it.
+        XCTAssertTrue(state.field)
+        for room in ["bedroom", "living", "kitchen", "bathroom", "den", "garden", "basement", "observatory", "cinema", "library", "secret",
+                     "pool", "diamond", "deck", "trampoline", "treehouse", "court", "vegpatch", "driveway"] {
+            XCTAssertTrue(state.rooms.contains(room), room)
+        }
+        XCTAssertNil(HouseLayout.problem(state.layout, field: state.field))
+        // The first rooms where they come: the house as it's drawn. And the ball field's in the back field.
+        for (room, p) in HouseLayout.home where room != HouseLayout.hall { XCTAssertEqual(state.plot(of: room), p, room) }
+        XCTAssertEqual(state.plot(of: "diamond"), HousePlot(10, 0))
+        for id in state.rooms { for spot in HouseCatalog.room(id)?.spots ?? [] {
+            XCTAssertNotNil(state.item(in: spot, of: id), "nothing in \(id).\(spot.id)")
         } }
     }
 
@@ -734,7 +747,7 @@ final class HouseTests: XCTestCase {
         for spot in outside.spots {
             XCTAssertNotNil(UIImage(systemName: spot.symbol), "outside.\(spot.id): no symbol called \(spot.symbol)")
             // The roof, its shape, the walls and the door are always something; the roof and the lawn start bare.
-            XCTAssertEqual(spot.starter != nil, ["roof", "shape", "walls", "door"].contains(spot.id), spot.id)
+            XCTAssertEqual(spot.starter != nil, ["roof", "shape", "walls", "door", "fence", "windows", "doors"].contains(spot.id), spot.id)
             let coins = spot.items.filter { $0.coins > 0 }.map(\.coins)
             XCTAssertLessThanOrEqual(try XCTUnwrap(coins.min()), 300, spot.id)
             for item in spot.items {

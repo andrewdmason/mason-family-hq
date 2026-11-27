@@ -17,6 +17,11 @@ import UIKit
 // (HouseStage.frontDoor: on the side nearest whoever's looking) is on its
 // south side: the houses north of Avalon open onto it, and those south of it
 // open onto Russell.
+//
+// A lot is all the land a house can have: the lot proper, on the street, and
+// behind it (north) the back field, which is rough grass until it's bought
+// (HouseLayout.swift). Mom & Dad's has its field already, with a ball field
+// and a pool in it, to show what one's for.
 
 enum HouseTown {
     // MARK: The plan
@@ -53,14 +58,16 @@ enum HouseTown {
     /// What a lot's front door opens towards.
     enum Front: Equatable { case avalon, bulb, palm, russell }
 
-    /// A piece of ground a house stands on: its north-west corner, and how big it is.
+    /// A piece of ground a house stands on: its north-west corner, and how
+    /// big it is. For one of the family's, that's with the back field: the
+    /// first `back` metres of it, which are only mown once they're bought.
     struct Lot: Equatable {
         let x: Float, z: Float
-        var wide: Float = HouseLand.lotSize, deep: Float = HouseLand.lotSize
+        var wide: Float = HouseLand.lotSize, deep: Float = HouseLand.lotDepth
+        var back: Float = Float(HouseLayout.back)
+        /// There's somewhere for its back field to be: not on the two lots with a street behind them.
+        var room = true
         let front: Front
-
-        /// Where a house on it stands: the lot's north-west corner.
-        var origin: SIMD3<Float> { SIMD3(x - HouseLand.lotStart, 0, z - HouseLand.lotStart) }
 
         /// How far south a path from a door at `x` runs before it meets what the lot fronts.
         func frontZ(at x: Float) -> Float {
@@ -73,11 +80,11 @@ enum HouseTown {
         }
     }
 
-    static let parentsLot = Lot(x: -10, z: -36, front: .bulb)
-    static let sebastian = Lot(x: 32, z: -24, front: .avalon)
-    static let oscar = Lot(x: -32, z: -18, front: .palm)
-    /// Nothing on them yet: the one north of Avalon first.
-    static let spare = [Lot(x: 74, z: -32, front: .avalon), Lot(x: 31, z: 10.5, front: .russell), Lot(x: 73, z: 8, front: .russell)]
+    static let parentsLot = Lot(x: -10, z: -46, front: .bulb)
+    static let sebastian = Lot(x: 32, z: -34, front: .avalon)
+    static let oscar = Lot(x: -32, z: -28, front: .palm)
+    /// Nothing on them yet: the one north of Avalon first. (Avalon runs behind the other two.)
+    static let spare = [Lot(x: 74, z: -39, front: .avalon), Lot(x: 31, z: 0.5, room: false, front: .russell), Lot(x: 73, z: -2, room: false, front: .russell)]
 
     /// Which lot each house stands on: Mom & Dad's, Sebastian's and Oscar's
     /// on their own, and anyone else (the demo, a parent playing as
@@ -110,18 +117,32 @@ enum HouseTown {
     /// spot. Nobody builds it; it's there to look round.
     static let parents: HouseShown = {
         var state = HouseState()
-        // Every room, each where it stands in a house as it comes (HouseLayout.home).
-        state.rooms = ["living", "kitchen", "garden", "den", "bathroom", "bedroom", "observatory", "basement"]
+        // The first rooms, each where it stands in a house as it comes (HouseLayout.home); a cinema off the
+        // kitchen, a library and a room nobody's meant to find upstairs; and the field behind, full.
+        state.land = 1
+        let extra: [String: HousePlot] = [
+            "cinema": HousePlot(12, 24), "library": HousePlot(12, 19, floor: 1), "secret": HousePlot(12, 15, floor: 1),
+            "diamond": HousePlot(10, 0), "pool": HousePlot(0, 0), "deck": HousePlot(1, 6), "trampoline": HousePlot(6, 6),
+            "treehouse": HousePlot(0, 10), "court": HousePlot(14, 10, turn: 1), "vegpatch": HousePlot(17, 16), "driveway": HousePlot(0, 24),
+        ]
+        state.rooms = ["living", "kitchen", "garden", "den", "bathroom", "bedroom", "observatory", "basement"] + extra.keys.sorted()
+        for (room, p) in HouseLayout.home.merging(extra, uniquingKeysWith: { $1 }) { state.plots[room] = p.kept }
         state.settle()
-        for (r, room) in HouseCatalog.rooms.enumerated() {
+        for (r, room) in HouseCatalog.everything.enumerated() {
             for (s, spot) in room.spots.enumerated() where !spot.items.isEmpty {
-                // Not the first thing in every spot, nor the dearest: a mix.
-                var item = spot.items[(r + s) % min(spot.items.count, 3)]
+                // Not the first thing in every spot, nor the dearest: a mix. (A yard thing as it comes.)
+                var item = spot.items[spot.id == room.id ? 0 : (r + s) % min(spot.items.count, 3)]
                 // (And a big bed, not bunks.)
                 if room.id == "bedroom", spot.id == "bed", let double = spot.items.first(where: { $0.id == "bedroom.bed.double" }) { item = double }
                 state.owned.append(item.id)
                 state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
             }
+        }
+        // And the front of it done properly: a porch, roses under the windows, shutters, a lamp by the road, a fountain.
+        for id in ["outside.porch.porch", "outside.beds.roses", "outside.windows.shutters", "outside.kerb.lamp", "outside.garden.fountain", "outside.door.blue"] {
+            let parts = id.split(separator: ".").map(String.init)
+            state.owned.append(id)
+            state.placed[HouseCatalog.key(parts[0], parts[1])] = id
         }
         let dad = MathLook(head: "male-e", body: "male-a", hair: "5a3b22", skin: "f1c6a0", top: "3b5b7a", bottom: "3a3f4a", shoes: "f2f2f2")
         let mom = MathLook(head: "female-b", body: "female-a", hair: "8a5a34", skin: "f3c9a8", top: "c9566b", bottom: "2f3b55", shoes: "f2f2f2")
@@ -313,31 +334,34 @@ enum HouseTown {
     }
 
     private static let neighbourLots: [Neighbour] = [
-        Neighbour(lot: Lot(x: 13, z: -18, wide: 16, deep: 16, front: .avalon), cells: [[0, 0, 0], [1, 0, 0], [0, 0, 1]],
+        Neighbour(lot: Lot(x: 13, z: -18, wide: 16, deep: 16, back: 0, front: .avalon), cells: [[0, 0, 0], [1, 0, 0], [0, 0, 1]],
                   wall: "efe3c8", roof: "c0674a", door: "3f6f9f", ridgeAcross: true),
-        Neighbour(lot: Lot(x: 55, z: -26, wide: 16, deep: 16, front: .avalon), cells: [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+        Neighbour(lot: Lot(x: 55, z: -26, wide: 16, deep: 16, back: 0, front: .avalon), cells: [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
                   wall: "f0e2a8", roof: "b85c41", door: "5a3b2a", ridgeAcross: false),
-        Neighbour(lot: Lot(x: 12, z: 12, wide: 16, deep: 16, front: .russell), cells: [[0, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]],
+        Neighbour(lot: Lot(x: 12, z: 12, wide: 16, deep: 16, back: 0, front: .russell), cells: [[0, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]],
                   wall: "c9d6de", roof: "5d6470", door: "b5483b", ridgeAcross: true),
-        Neighbour(lot: Lot(x: 54, z: 8, wide: 16, deep: 16, front: .russell), cells: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+        Neighbour(lot: Lot(x: 54, z: 8, wide: 16, deep: 16, back: 0, front: .russell), cells: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
                   wall: "f2efe6", roof: "6f7480", door: "2f7a5a", ridgeAcross: false),
-        Neighbour(lot: Lot(x: -34, z: 12, wide: 16, deep: 16, front: .russell), cells: [[0, 0, 0], [0, 0, 1], [1, 0, 1]],
+        Neighbour(lot: Lot(x: -34, z: 12, wide: 16, deep: 16, back: 0, front: .russell), cells: [[0, 0, 0], [0, 0, 1], [1, 0, 1]],
                   wall: "ead9b8", roof: "c2603f", door: "3f6f9f", ridgeAcross: false),
     ]
 
     /// Every lot there is, whoever's it is, for keeping trees off them.
     private static var everyLot: [Lot] { [parentsLot, sebastian, oscar] + spare + neighbourLots.map(\.lot) }
 
-    /// Mown grass on every lot, so each reads as somebody's.
+    /// Mown grass on every lot, so each reads as somebody's. (Not its back field: that's mown once it's bought, HouseBuilt.grounds.)
     private static func lawns() -> SCNNode {
         let holder = SCNNode()
         for lot in everyLot {
-            let lawn = MathShape.floor(lot.wide, lot.deep, flat("9ad374"))
+            let lawn = MathShape.floor(lot.wide, lot.deep - lot.back, flat("9ad374"))
             lawn.castsShadow = false
-            holder.add(lawn, lot.x + lot.wide / 2, lawnY, lot.z + lot.deep / 2)
+            holder.add(lawn, lot.x + lot.wide / 2, lawnY, lot.z + lot.back + (lot.deep - lot.back) / 2)
         }
         return holder
     }
+
+    /// How high a lot's own lawn lies.
+    static var lawnHeight: Float { lawnY }
 
     private static func neighbours() -> SCNNode {
         let holder = SCNNode()
@@ -561,7 +585,7 @@ enum HouseTown {
         if min(abs(x - west), abs(x - east)) < 11, min(abs(z - north), abs(z - south)) < 11 { return false }
         if x > west, x < -5, abs(z - palm) < 2.4 { return false }
         // The lots, and the ground in front of each (east and south of it).
-        for lot in everyLot where x > lot.x - 1 && x < lot.x + lot.wide + 5 && z > lot.z - 1 && z < lot.z + lot.deep + 7 { return false }
+        for lot in everyLot where x > lot.x - 1 && x < lot.x + lot.wide + 5 && z > lot.z + (lot.room ? 0 : lot.back) - 1.5 && z < lot.z + lot.deep + 7 { return false }
         // The big place and the park have their own.
         if x > 15, x < 73, z > -63, z < -33 { return false }
         if hypot(x - 87, z + 50) < 12 { return false }

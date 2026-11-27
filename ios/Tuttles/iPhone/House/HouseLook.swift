@@ -200,14 +200,30 @@ enum HouseLook {
         case "parquet": return tinted("herringbone_parquet", a, tile: 1.6)
         case "tiles": return tinted("interior_tiles", a, tile: 1.5)
         case "carpet": return cloth(color(a))
+        case "marble": return surface("marble_01", tile: 1.8, rough: 0.22, tint: color(a))
         default:
             return cached("drawn|\(pattern)|\(a)|\(b)") {
                 // Drawn to cover four metres; these floors are measured in metres.
-                let m = physical(HouseProps.floorMaterial(pattern, a, b), fresh: true)
+                let drawn = HousePatterns.floors.contains(pattern) ? HousePatterns.floor(pattern, a, b) : HouseProps.floorMaterial(pattern, a, b)
+                let m = physical(drawn, fresh: true)
+                // (Lava's cracks glow.)
+                if pattern == "lava" { m.emission.contents = drawn.diffuse.contents; m.emission.intensity = 0.35; m.emission.wrapS = .repeat; m.emission.wrapT = .repeat
+                    m.emission.contentsTransform = SCNMatrix4MakeScale(0.25, 0.25, 1) }
                 m.diffuse.wrapS = .repeat; m.diffuse.wrapT = .repeat
                 m.diffuse.contentsTransform = SCNMatrix4MakeScale(0.25, 0.25, 1)
                 return m
             }
+        }
+    }
+
+    /// A wall's paper: a pattern in two colours, printed to repeat every two metres, over plaster.
+    static func paper(_ pattern: String, _ a: String, _ b: String) -> SCNMaterial {
+        cached("paper|\(pattern)|\(a)|\(b)") {
+            let m = physical(HousePatterns.paper(pattern, a, b), fresh: true)
+            m.diffuse.wrapS = .repeat; m.diffuse.wrapT = .repeat
+            m.diffuse.contentsTransform = SCNMatrix4MakeScale(0.5, 0.5, 1)
+            m.roughness.contents = NSNumber(value: 0.85)
+            return m
         }
     }
 
