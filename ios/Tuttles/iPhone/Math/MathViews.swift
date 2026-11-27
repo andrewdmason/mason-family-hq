@@ -713,7 +713,10 @@ struct MathOverView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.6).ignoresSafeArea()
+            // The hallway is still there, but blurred and well back: the
+            // run's numbers are read over it, not through it.
+            Rectangle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark).ignoresSafeArea()
+            Color.black.opacity(0.45).ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 16) {
                     Text(ending.missed == nil ? "Run over" : "Caught")
@@ -745,19 +748,12 @@ struct MathOverView: View {
                         stat("\(ending.run.distance) m", MathZone.all[MathZone.index(forLevel: ending.run.depth)].name, "figure.run", .white)
                     }
                     .padding(.horizontal, 14)
-                    Text("Every \(MathPay.starsPerCoin) stars is a coin.")
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.6))
                     if ending.gem {
                         Label("A strong day: +1 gem", systemImage: "diamond.fill")
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                             .foregroundStyle(.cyan)
                     } else if math.goalReachedToday, math.rightToday < MathPay.strongDay, !HouseStore.shared.state.paid.contains(MathPay.gemKey(MathStore.day())) {
                         Text("\(MathPay.strongDay - math.rightToday) more right today for a gem")
-                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.75))
-                    } else if !math.goalReachedToday {
-                        Text("\(max(0, MathStore.dayGoal - math.answeredToday)) more questions for today")
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .foregroundStyle(.white.opacity(0.75))
                     }
@@ -784,7 +780,15 @@ struct MathOverView: View {
                     .layoutPriority(1)
                 }
                 .padding(.horizontal, 16)
+                .padding(.top, 36)
                 .padding(.bottom, 12)
+                // What scrolls under the buttons fades out behind them.
+                .background {
+                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.85), location: 0.45),
+                                           .init(color: .black.opacity(0.92), location: 1)], startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
             }
         }
     }
