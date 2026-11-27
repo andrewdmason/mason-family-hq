@@ -278,18 +278,50 @@ final class HouseYardTests: XCTestCase {
         XCTAssertEqual(door.edge.x, 12)
         XCTAssertFalse(door.edge.across)
         XCTAssertTrue((20..<24).contains(door.edge.z), "the door's at \(door.edge.z), where the hall has something in its corner")
-        // Its north wall is the cooker, the fridge and the sink from end to end: put under the bedroom that way
-        // round, with only its last metre past the bedroom's corner, there's nowhere for a door, and they're
-        // told what to do about it.
-        var other = HouseState()
+        // Its north wall is the cooker, the fridge and the sink from end to end. Put under the bedroom that way
+        // round, with only its last metre past the bedroom's corner, it still gets a door (any two rooms that
+        // touch do), but behind its own things: allowed, with a word about turning it.
+        let other = HouseState()
         let south = HousePlot(5, 25)
-        XCTAssertEqual(other.problem(putting: "kitchen", at: south), .noDoor("kitchen"))
-        XCTAssertEqual(other.problem(putting: "kitchen", at: south)?.message(moving: "kitchen"),
-                       "No door fits in that wall: things stand against it. Slide it along, or turn it.")
+        XCTAssertNil(other.problem(putting: "kitchen", at: south))
+        let blocked = other.blockedDoor(putting: "kitchen", at: south)
+        XCTAssertTrue(blocked.blocked)
+        XCTAssertNil(blocked.by, "it's the kitchen's own things in the way, not the bedroom's")
+        var trial = other.layout
+        trial["kitchen"] = south
+        let awkward = try XCTUnwrap(HouseLayout.doorways(trial, floor: 0).first { Set([$0.a, $0.b]) == ["bedroom", "kitchen"] })
+        XCTAssertFalse(awkward.clear)
+        // Lined up beside the hall, as above, the door's clear and nothing's said.
+        XCTAssertFalse(other.blockedDoor(putting: "kitchen", at: beside).blocked)
+        // Only the hall can't give way: against the wall its stairs run along, there's no door, and they're told so.
+        // (The bedroom, slid a metre down the hall's west side, where the flight is.)
+        let stairs = HousePlot(4, 21)
+        XCTAssertEqual(other.problem(putting: "bedroom", at: stairs), .noDoor("bedroom"))
+        XCTAssertEqual(other.problem(putting: "bedroom", at: stairs)?.message(moving: "bedroom"),
+                       "No door fits there: the stairs are in the way. Slide it along, or try another side.")
         // On its own, touching nothing: a different thing to be told.
         XCTAssertEqual(other.problem(putting: "kitchen", at: HousePlot(0, 10)), .noWayIn("kitchen"))
         XCTAssertEqual(other.problem(putting: "kitchen", at: HousePlot(0, 10))?.message(moving: "kitchen"), "The kitchen has to touch another room, to have a door.")
-        other.coins = 0
+    }
+
+    func testAnyRoomBesideTheLandingHasADoorWhicheverWayRoundItIs() throws {
+        // Every room that can go upstairs, put squarely east of the landing-to-be over a big enough house,
+        // each of the four ways round: wherever it's over rooms and clear of the others, it has a door.
+        var state = HouseState()
+        state.rooms = ["bedroom", "living", "kitchen", "bathroom"]
+        state.settle()
+        let hall = try XCTUnwrap(state.plot(of: "hall"))
+        var tried = 0
+        for room in HouseCatalog.rooms where room.id != "basement" && !HouseLayout.shape(room.id).outdoor && !state.rooms.contains(room.id) {
+            for turn in 0..<4 {
+                let p = HousePlot(hall.x + 3, hall.z, floor: 1, turn: turn)
+                guard let trouble = state.problem(putting: room.id, at: p) else { tried += 1; continue }
+                // Whatever stops it, it's never for want of a door.
+                XCTAssertNotEqual(trouble, .noDoor(room.id), "\(room.id) turned \(turn)")
+                XCTAssertNotEqual(trouble, .offLanding(room.id), "\(room.id) turned \(turn)")
+            }
+        }
+        XCTAssertGreaterThan(tried, 0)
     }
 
     func testTheFirstRoomUpstairsGoesByTheLandingAndSaysSo() throws {

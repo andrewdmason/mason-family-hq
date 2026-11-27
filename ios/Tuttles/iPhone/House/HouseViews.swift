@@ -673,6 +673,8 @@ struct HouseHomeView: View {
         if let placing {
             // Why it can't go where it's held; or what to do with it.
             if let trouble = held?.trouble { return trouble }
+            // It can go there, but there's something to know first.
+            if let advice = held?.advice { return advice }
             let room = HouseCatalog.room(placing.room)?.name ?? "room"
             return "Drag the \(room.lowercased()) to where it goes"
         }

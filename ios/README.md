@@ -261,13 +261,16 @@ in each room fixed spots, each with its own things to choose between.
   upstairs or down, so long as the house holds together (`HouseLayout.problem`):
   upstairs a room under all of it (not the garden or the observatory, which
   have no roof), the basement under the hall, the front door opening outdoors,
-  and a door into every room. Doors aren't placed: one's made wherever two
-  rooms share a metre of wall both keep clear (a room's things are against
-  its north and west walls as it's drawn, so its east and south sides are
-  clear; of the other two, whatever metres nothing in the catalogue stands
-  at, `HouseLayout.doors(of:)`), and between two open rooms it's an arch. A
-  room put where it can't have one is told why: it touches no other room,
-  or things stand against the wall between, and to slide it along or turn it.
+  and a door into every room. Doors aren't placed: any two rooms that share
+  a metre of wall have one (`HouseLayout.doorways`), where both keep the
+  wall clear if there's such a metre (a room's things are against its north
+  and west walls as it's drawn, so its east and south sides are clear; of
+  the other two, whatever metres nothing in the catalogue stands at,
+  `HouseLayout.doors(of:)`), and otherwise behind whatever's there, with a
+  word while the room's in hand that it would be better turned. Between two
+  open rooms it's an arch. Only the hall and the landing don't give way,
+  where the stairs are. A room put where it can't have a door is told why:
+  it touches no other room, or the stairs are in the way.
   The first room upstairs has to touch the landing, which isn't there yet:
   so with a room in hand upstairs and nothing up there, where the stairs
   come up is marked over the hall, and picking a floor with a room in hand

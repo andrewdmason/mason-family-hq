@@ -11,8 +11,8 @@ import Foundation
 // - the basement under the hall, where the stairs go down to it;
 // - the front door opening outdoors;
 // - and a door into every room: one's made wherever two rooms share a metre
-//   of wall that both keep clear, so a room has to meet another along such a
-//   stretch.
+//   of wall, so a room has to touch another. (Where both keep the wall clear,
+//   if they can: `doorways`.)
 //
 // The land is the lot, twenty metres square, and behind it the back field,
 // which is theirs once it's bought. Out on the grass go the things of the
@@ -258,15 +258,34 @@ enum HouseLayout {
 
     /// Every pair of rooms on a floor with a way between them, and the metre
     /// of wall the door's in: the middle one of those both keep clear.
-    static func doorways(_ all: [String: HousePlot], floor: Int) -> [(a: String, b: String, edge: HousePlan.Edge)] {
+    ///
+    /// Any two rooms that share a metre of wall have a door between them.
+    /// It goes where both keep the wall clear, if there's such a metre;
+    /// failing that, where one of them does; failing that, anywhere along
+    /// it, behind whatever stands there (`clear` is false then: it would be
+    /// better turned). Only the hall and the landing can't give way: the
+    /// stairs are where they are.
+    static func doorways(_ all: [String: HousePlot], floor: Int) -> [(a: String, b: String, edge: HousePlan.Edge, clear: Bool)] {
         let here = all.keys.filter { all[$0]!.floor == floor && !yard($0) }.sorted()
-        var clear: [String: Set<HousePlan.Edge>] = [:]
-        for room in here { clear[room] = Set(doors(of: room).map { edge(room, all[room]!, $0) }) }
-        var out: [(String, String, HousePlan.Edge)] = []
+        var clear: [String: Set<HousePlan.Edge>] = [:], any: [String: Set<HousePlan.Edge>] = [:]
+        for room in here {
+            let p = all[room]!, s = shape(room)
+            clear[room] = Set(doors(of: room).map { edge(room, p, $0) })
+            if fixture(room) { any[room] = clear[room] } else {
+                let every = HouseWall.run(.north, 0..<s.width) + HouseWall.run(.south, 0..<s.width) + HouseWall.run(.west, 0..<s.depth) + HouseWall.run(.east, 0..<s.depth)
+                any[room] = Set(every.map { edge(room, p, $0) })
+            }
+        }
+        var out: [(String, String, HousePlan.Edge, Bool)] = []
         for (n, a) in here.enumerated() {
             for b in here.dropFirst(n + 1) {
-                let both = clear[a]!.intersection(clear[b]!).sorted { ($0.x, $0.z) < ($1.x, $1.z) }
-                if !both.isEmpty { out.append((a, b, both[both.count / 2])) }
+                let shared = any[a]!.intersection(any[b]!)
+                guard !shared.isEmpty else { continue }
+                // The metres most of the two keep clear, and the middle one of those.
+                func kept(_ e: HousePlan.Edge) -> Int { (clear[a]!.contains(e) ? 1 : 0) + (clear[b]!.contains(e) ? 1 : 0) }
+                let most = shared.map(kept).max() ?? 0
+                let best = shared.filter { kept($0) == most }.sorted { ($0.x, $0.z) < ($1.x, $1.z) }
+                out.append((a, b, best[best.count / 2], most == 2))
             }
         }
         return out
@@ -285,7 +304,7 @@ enum HouseLayout {
         case noWayIn(String)
         /// A room upstairs on its own: not touching the landing, where the stairs come up, or any room up there.
         case offLanding(String)
-        /// A room that touches another, but only along walls with things against them: nowhere for a door.
+        /// A room that touches only the hall or the landing, and only where the stairs or what's in their corner is: nowhere for a door.
         case noDoor(String)
 
         /// Said to whoever's moving `moving`.
@@ -310,8 +329,8 @@ enum HouseLayout {
                 if moving == room { return "Upstairs, it has to touch the landing: over the hall, where the stairs come up." }
                 return "That would leave the \(HouseLayout.name(room).lowercased()) on its own upstairs."
             case .noDoor(let room):
-                // Whoever's moving it is told what to do about it: things stand against the wall it's been put to.
-                if moving == room { return "No door fits in that wall: things stand against it. Slide it along, or turn it." }
+                // (Only against the hall or the landing: any two rooms that touch have a door.) Whoever's moving it is told what to do about it.
+                if moving == room { return "No door fits there: the stairs are in the way. Slide it along, or try another side." }
                 return "That would leave no door into the \(HouseLayout.name(room).lowercased())."
             }
         }

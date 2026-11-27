@@ -61,6 +61,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         /// One being bought, not one of theirs being moved.
         var new: Bool
         var trouble: String?
+        /// It can go there, but would be better otherwise: its door would be behind something.
+        var advice: String? = nil
     }
 
     let scene = SCNScene()
@@ -768,6 +770,14 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         for child in ghost.childNodes { child.removeFromParentNode() }
         guard var h = held, let mine, let lot = lots[mine.kid] else { return }
         h.trouble = mine.state.problem(putting: h.room, at: h.plot)?.message(moving: h.room)
+        h.advice = nil
+        if h.trouble == nil {
+            let door = mine.state.blockedDoor(putting: h.room, at: h.plot)
+            if door.blocked {
+                h.advice = door.by.map { "It can go here, but the door would be behind the \(HouseLayout.name($0).lowercased())'s things." }
+                    ?? "It can go here, but the door would be behind its things. Turn it to keep the door clear."
+            }
+        }
         held = h
         let shape = HouseLayout.shape(h.room)
         let (w, d) = HouseLayout.size(h.room, h.plot)

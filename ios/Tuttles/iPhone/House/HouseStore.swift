@@ -118,6 +118,20 @@ struct HouseState: Codable, Equatable {
         return HouseLayout.place(for: room, in: layout.filter { $0.key != HouseLayout.landing }, field: field)
     }
 
+    /// With a room put there, a door of its that would be behind something: whose things, if it's the
+    /// other room's (nil: its own). Nil if every door of its is clear, or it's somewhere it can't go.
+    func blockedDoor(putting room: String, at p: HousePlot) -> (blocked: Bool, by: String?) {
+        var trial = plots.compactMapValues { HousePlot($0) }
+        trial[room] = p
+        let all = HouseLayout.standing(rooms.contains(room) || HouseLayout.fixture(room) ? rooms : rooms + [room], trial)
+        guard HouseLayout.problem(all, field: field) == nil else { return (false, nil) }
+        let own = Set(HouseLayout.doors(of: room).map { HouseLayout.edge(room, p, $0) })
+        for way in HouseLayout.doorways(all, floor: p.floor) where !way.clear && (way.a == room || way.b == room) {
+            return (true, own.contains(way.edge) ? (way.a == room ? way.b : way.a) : nil)
+        }
+        return (false, nil)
+    }
+
     /// The nearest place to where a room's being held that it could go on a floor, if there is one.
     func place(for room: String, on floor: Int, near: HousePlot) -> HousePlot? {
         var others = layout.filter { $0.key != HouseLayout.landing && $0.key != room }
