@@ -4,7 +4,16 @@
 import type { Form, Item, Level } from "@/lib/words/types";
 
 /** One way of asking, as the phone keeps it. A list, not a record: the order is the order they're asked in. */
-export type PackForm = { key: string; kind: Form["kind"]; stem: string; answer: string; traps: { text: string; why: string | null }[]; tip: string };
+export type PackForm = {
+  key: string;
+  kind: Form["kind"];
+  stem: string;
+  answer: string;
+  traps: { text: string; why: string | null }[];
+  /** Sentence completions only: other vocab words to ask it with (pickWrong in src/lib/words/schedule.ts). */
+  decoys?: { text: string; why: string | null; item: string }[];
+  tip: string;
+};
 
 /** A word or word part with everything a question and its lesson need. */
 export type PackItem = {
@@ -39,6 +48,7 @@ export function packItem(item: Item): PackItem {
       stem: f.stem,
       answer: f.answer,
       traps: f.traps.map((t) => ({ text: t.text, why: t.why ?? null })),
+      ...(f.decoys?.length ? { decoys: f.decoys.map((d) => ({ text: d.text, why: d.why ?? null, item: d.item })) } : {}),
       tip: f.tip,
     })),
   };

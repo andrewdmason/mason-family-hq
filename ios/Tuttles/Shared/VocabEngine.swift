@@ -88,6 +88,14 @@ struct VocabItem: Codable, Hashable, Identifiable {
         let why: String?
     }
 
+    /// Another vocab word as a wrong answer to a sentence completion (Decoy in src/lib/words/types.ts).
+    struct Decoy: Codable, Hashable {
+        let text: String
+        let why: String?
+        /// The word's id, to tell whether they've met it.
+        let item: String
+    }
+
     /// One way of asking.
     struct Form: Codable, Hashable {
         let key: String
@@ -96,6 +104,8 @@ struct VocabItem: Codable, Hashable, Identifiable {
         let stem: String
         let answer: String
         let traps: [Trap]
+        /// Sentence completions only: vocab words to ask it with in place of the traps (VocabEngine.pickWrong).
+        var decoys: [Decoy]? = nil
         let tip: String
     }
 
@@ -483,12 +493,36 @@ enum VocabEngine {
         let key = pickForm(item, before)
         guard let form = item.forms.first(where: { $0.key == key }) else { return nil }
         var choices = [VocabLocalSession.Choice(text: form.answer, why: nil, right: true)]
-            + form.traps.map { VocabLocalSession.Choice(text: $0.text, why: $0.why, right: false) }
+            + pickWrong(form, progress: progress, shuffle: shuffle)
         if shuffle { choices.shuffle() }
         let ifRight = applyAnswer(before, item: item.id, form: key, result: "correct", today: day, now: "", rules: rules)
         return VocabLocalSession.Current(item: item.id, form: key, choices: choices, correct: choices.firstIndex(where: \.right) ?? 0,
                                          isNew: before == nil, requeued: requeued,
                                          masteredIfRight: nowMastered(before, ifRight))
+    }
+
+    /// A question has this many wrong answers.
+    static let wrongChoices = 3
+
+    /// The wrong answers to ask a question with (pickWrong in src/lib/words/schedule.ts): a
+    /// sentence completion's decoys, the ones they've met first so every choice is a word
+    /// they know and only the sentence tells them apart, then the ones not yet met, then
+    /// its traps to make up three. Without `shuffle` they're taken in order.
+    static func pickWrong(_ form: VocabItem.Form, progress: Progress, shuffle: Bool) -> [VocabLocalSession.Choice] {
+        let decoys = form.decoys ?? []
+        var met = decoys.filter { progress[$0.item] != nil }
+        var rest = decoys.filter { progress[$0.item] == nil }
+        if shuffle {
+            met.shuffle()
+            rest.shuffle()
+        }
+        var picked = (met + rest).prefix(wrongChoices).map { VocabLocalSession.Choice(text: $0.text, why: $0.why, right: false) }
+        for trap in form.traps where picked.count < wrongChoices {
+            if !picked.contains(where: { $0.text.lowercased() == trap.text.lowercased() }) {
+                picked.append(VocabLocalSession.Choice(text: trap.text, why: trap.why, right: false))
+            }
+        }
+        return picked
     }
 
     /// The answer takes the item to mastered. A word known at first sight is

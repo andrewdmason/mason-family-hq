@@ -13,7 +13,7 @@
 import { resolve } from "node:path";
 import { buildOverview } from "@/lib/words/overview";
 import { packItem } from "@/lib/words/pack";
-import { addDays, applyAnswer, isTestDaySession, pickForm, pickNext, RULES } from "@/lib/words/schedule";
+import { addDays, applyAnswer, isTestDaySession, pickForm, pickNext, pickWrong, RULES } from "@/lib/words/schedule";
 import type { Form, Item, PartItem, Progress, Result, WordItem } from "@/lib/words/types";
 
 /** Where it's kept, from the top of the repo (where npm runs scripts). */
@@ -37,9 +37,23 @@ function form(kind: Form["kind"], id: string, key: string): Form {
   };
 }
 
+const wordName = (i: number) => `w${String(i + 1).padStart(3, "0")}`;
+
+/**
+ * Other made-up words as decoys for a sentence completion: some met before it,
+ * some after, and for sc2 too few, so the traps make up the three.
+ */
+function decoys(i: number, key: string): Form["decoys"] {
+  const near = key === "sc1" ? [-1, -3, 2, 9] : [-2, 4];
+  return near
+    .map((d) => i + d)
+    .filter((n) => n >= 0 && n < 140)
+    .map((n) => ({ item: `w:${wordName(n)}`, text: `${wordName(n)} as a decoy`, trap: "related" as const, why: n % 2 ? `Why not ${wordName(n)}.` : undefined }));
+}
+
 // Made-up words: enough to run out of, most asked four ways, some two, a few only one.
 const WORDS: WordItem[] = Array.from({ length: 140 }, (_, i) => {
-  const name = `w${String(i + 1).padStart(3, "0")}`;
+  const name = wordName(i);
   const keys = i % 11 === 5 ? ["syn1"] : i % 7 === 3 ? ["syn1", "sc1"] : ["syn1", "sc1", "syn2", "sc2"];
   return {
     id: `w:${name}`,
@@ -53,7 +67,9 @@ const WORDS: WordItem[] = Array.from({ length: 140 }, (_, i) => {
     parts: i % 9 === 0 ? ["p:p01", "p:p02"] : [],
     tier: i < 60 ? "core" : "ext",
     rank: i + 1,
-    forms: Object.fromEntries(keys.map((k) => [k, form(k.startsWith("syn") ? "syn" : "sc", name, k)])),
+    forms: Object.fromEntries(
+      keys.map((k) => [k, k.startsWith("syn") ? form("syn", name, k) : { ...form("sc", name, k), ...(i % 5 === 4 ? {} : { decoys: decoys(i, k) }) }])
+    ),
   };
 });
 const PARTS: PartItem[] = Array.from({ length: 14 }, (_, i) => {
@@ -99,6 +115,8 @@ function play(st: Student) {
         const item = ITEMS.get(pick.item)!;
         const before = progress.get(item.id) ?? null;
         const formKey = pickForm(item, before);
+        // The choices as asked before they're shuffled: the answer, then the wrong ones.
+        const choices = [item.forms[formKey].answer, ...pickWrong(item.forms[formKey], progress).map((w) => w.text)];
         const times = shown.get(item.id) ?? 0;
         const chance = known.has(item.id) ? 0.93 : Math.min(0.9, times * st.learns);
         const roll = rand();
@@ -115,7 +133,7 @@ function play(st: Student) {
         tally.newItems += before ? 0 : 1;
         tally.masteredGained += before && after.stage >= 3 && before.stage < 3 ? 1 : 0;
         tally.elapsedMs += ms;
-        steps.push({ item: item.id, form: formKey, isNew: !before, requeued, result, ms });
+        steps.push({ item: item.id, form: formKey, choices, isNew: !before, requeued, result, ms });
       }
       sessions.push({
         day: today,
