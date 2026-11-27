@@ -148,7 +148,8 @@ are in `src/lib/tuttles/prompt.ts`.
   the parent view shows both kids and each one's words, read-only.
   `Shared/Vocab.swift` has the shapes and a session's rules,
   `VocabViews.swift` and `VocabSessionView.swift` the screens. `--demo --vocab`
-  opens on it, `--vocab-late` starts a session two questions from its end,
+  opens on it (the demo's sessions are 8 questions, to play through quickly),
+  `--vocab-late` starts a session two questions from its end,
   `--vocab-slow` makes every answer take two seconds to save,
   `--vocab-second` has one session done and a second under way (with
   `--vocab-late`, finishing it fills the day's ten minutes), and
