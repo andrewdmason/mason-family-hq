@@ -6,6 +6,13 @@ import Foundation
 /// (unsigned, as in CI) falls back to the app's own folders, where the widget
 /// can't see it.
 enum CalendarShared {
+    /// Whether lists are the member's events and the time between them: the
+    /// app's setting, read by the widget too. On until it's switched off.
+    static let timeBetweenKey = "calendar.timeBetween"
+    static func timeBetween(in defaults: UserDefaults = CalendarShared.defaults) -> Bool {
+        defaults.object(forKey: timeBetweenKey) as? Bool ?? true
+    }
+
     static let group = "group.io.mason.calendar"
 
     static let defaults = UserDefaults(suiteName: group) ?? .standard

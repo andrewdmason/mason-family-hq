@@ -20,6 +20,15 @@ enum DemoCalendar {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", n))!
     }
 
+    /// The time of day to pretend it is, for a look at another hour of the
+    /// made-up week: `--demo --now 14:45`. Otherwise the real one.
+    static func now(_ real: Date = Date()) -> Date {
+        let args = CommandLine.arguments
+        guard args.contains("--demo"), let at = args.firstIndex(of: "--now"), args.count > at + 1 else { return real }
+        let parts = args[at + 1].split(separator: ":").compactMap { Int($0) }
+        return parts.count == 2 ? Day(real).at(minutes: parts[0] * 60 + parts[1]) : real
+    }
+
     static func make(today: Day = .today()) -> CalendarSnapshot {
         var snapshot = CalendarSnapshot()
         snapshot.members = [

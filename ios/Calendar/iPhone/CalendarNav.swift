@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import WidgetKit
 
 enum ViewMode: String, CaseIterable, Identifiable {
     case day, schedule
@@ -26,6 +27,16 @@ final class Prefs {
     /// Show events that are hidden by default (declined, not going, or
     /// hidden by this member).
     var showHidden: Bool { didSet { defaults.set(showHidden, forKey: "calendar.showHidden") } }
+    /// Schedule and the widget list a day as the member's own events and the
+    /// time between them (see `Rundown`), not every event in a row. An
+    /// experiment, on unless switched off.
+    var timeBetween: Bool {
+        didSet {
+            defaults.set(timeBetween, forKey: CalendarShared.timeBetweenKey)
+            // The widget lists the day the same way.
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
 
     private let defaults: UserDefaults
 
@@ -37,6 +48,7 @@ final class Prefs {
         othersAsBlocks = defaults.bool(forKey: "calendar.othersAsBlocks")
         opensOn = ViewMode(rawValue: defaults.string(forKey: "calendar.opensOn") ?? "") ?? .day
         showHidden = defaults.bool(forKey: "calendar.showHidden")
+        timeBetween = CalendarShared.timeBetween(in: defaults)
     }
 
     /// Everyone, in this phone's order.

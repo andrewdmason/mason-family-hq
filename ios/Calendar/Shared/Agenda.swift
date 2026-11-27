@@ -51,8 +51,10 @@ struct Agenda: Sendable {
         return next
     }
 
-    private static func day(
-        _ day: Day, board: Board, me: String?, shown: [Member], showHidden: Bool, now: Date, in calendar: Calendar
+    /// One day and no other: the Schedule's sections, where today stays
+    /// today however little of it is left.
+    static func day(
+        _ day: Day, board: Board, me: String?, shown: [Member], showHidden: Bool, now: Date = Date(), in calendar: Calendar = .current
     ) -> Agenda {
         let visible = Set(shown.map(\.email)).union(me.map { [$0] } ?? [])
         let order = Dictionary(board.members.enumerated().map { ($1.email, $0) }, uniquingKeysWith: { a, _ in a })

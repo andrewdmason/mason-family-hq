@@ -70,6 +70,12 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Show time between events", isOn: $prefs.timeBetween)
+                } footer: {
+                    Text("Schedule and the widget list your own events and the time between them, with what the family has on in that time on one grey line to tap open. Off, they show every event.")
+                }
+
+                Section {
                     Picker("Open on", selection: $prefs.opensOn) {
                         ForEach(ViewMode.allCases) { Text($0.title).tag($0) }
                     }
