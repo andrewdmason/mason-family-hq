@@ -57,6 +57,13 @@ struct HouseState: Codable, Equatable {
     /// What they've done in the games, for the shelf that shows it (HouseEarned.swift): "words" known by
     /// heart in Vocab, "mathDays" the goal's been reached in Math, "streak" the days in a row.
     var feats: [String: Int] = [:]
+    /// The one-off gifts they've had ("start": the coins to build with on the first day), kept apart from
+    /// `paid`, which forgets its oldest keys, so nothing here is ever given twice.
+    var gifts: [String] = []
+
+    /// The coins every house starts with, so there's something to build straight away (Andrew, 2026-11-27):
+    /// the second room and the deck, say, or the bedroom done up.
+    static let startingCoins = 1500
 
     /// The economy of 2026-11-26: coins about a tenth of what they were, no back pay.
     static let economy = 2
@@ -81,6 +88,7 @@ struct HouseState: Codable, Equatable {
         land = (try? c.decode(Int.self, forKey: .land)) ?? 0
         names = (try? c.decode([String: String].self, forKey: .names)) ?? [:]
         feats = (try? c.decode([String: Int].self, forKey: .feats)) ?? [:]
+        gifts = (try? c.decode([String].self, forKey: .gifts)) ?? []
         var kept = (try? c.decode([String: [Int]].self, forKey: .plots)) ?? [:]
         // A house from before the back field: everything's that much further south on the land now.
         if ((try? c.decode(Int.self, forKey: .grid)) ?? 1) < HouseState.grid {
@@ -206,6 +214,15 @@ struct HouseState: Codable, Equatable {
         return true
     }
 
+    /// Give the coins to start with, if they've not had them. True if they were given now.
+    @discardableResult
+    mutating func giveStart(day: String) -> Bool {
+        guard !gifts.contains("start") else { return false }
+        gifts.append("start")
+        add(coins: HouseState.startingCoins, gems: 0, from: "start", day: day)
+        return true
+    }
+
     /// Pay something in that has no key: Math's answers and stars, as they're won.
     mutating func add(coins: Int, gems: Int, from: String, day: String) {
         guard coins > 0 || gems > 0 else { return }
@@ -321,6 +338,7 @@ final class HouseStore {
             saved = (try? Data(contentsOf: file(owner))).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) } ?? Saved()
             lastPaid = nil
             startAgainIfOld()
+            giveStart()
         }
         if let name, !name.isEmpty { saved.name = name }
     }
@@ -351,11 +369,13 @@ final class HouseStore {
 
     // MARK: Paying in
 
-    /// Something with a key: paid once however often it's sent.
-    func pay(key: String, coins: Int, gems: Int, from: String) {
-        guard owner != nil, saved.state.pay(key: key, coins: coins, gems: gems, from: from, day: MathStore.day()) else { return }
+    /// Something with a key: paid once however often it's sent. True if it was paid now.
+    @discardableResult
+    func pay(key: String, coins: Int, gems: Int, from: String) -> Bool {
+        guard owner != nil, saved.state.pay(key: key, coins: coins, gems: gems, from: from, day: MathStore.day()) else { return false }
         lastPaid = (coins, gems, Date())
         save()
+        return true
     }
 
     /// Math's coins as they're won.
@@ -374,12 +394,22 @@ final class HouseStore {
         save()
     }
 
+    /// The coins to start with, the once. On a phone that's never had anything this isn't a change of
+    /// its own (the rev stays 0), so a reinstall still takes the website's house, and gets them only if
+    /// that hasn't had them either.
+    private func giveStart() {
+        guard owner != nil, saved.state.giveStart(day: MathStore.day()) else { return }
+        lastPaid = (HouseState.startingCoins, 0, Date())
+        save(changed: saved.rev > 0)
+    }
+
     /// Take what Vocab has won, once today's ten minutes are done. Until then
     /// it waits in Vocab. A chest from a day that ended without them is lost;
     /// a boss waits for whichever day they're done next.
     func collect(from vocab: VocabLocal?) {
         guard owner != nil, let vocab else { return }
         let earnings = vocab.earnings
+        // (A golden day is only ever made by a chest being paid, so there's nothing to look at without one.)
         guard !earnings.isEmpty else { return }
         let overview = vocab.home().overview
         let today = overview?.today ?? vocab.today()
@@ -391,6 +421,12 @@ final class HouseStore {
         for e in paying where saved.state.pay(key: e.key, coins: e.coins, gems: e.gems, from: "vocab", day: MathStore.day()) {
             coins += e.coins
             gems += e.gems
+        }
+        // The ten minutes done with every chest of the day gold: a golden day.
+        if done, VocabPay.golden(vocab.prizes.filter { $0.day == today }.map(\.chest)),
+           saved.state.pay(key: VocabPay.goldenKey(today), coins: VocabPay.goldenCoins, gems: 1, from: "vocab", day: MathStore.day()) {
+            coins += VocabPay.goldenCoins
+            gems += 1
         }
         if coins > 0 || gems > 0 {
             lastPaid = (coins, gems, Date())
@@ -510,6 +546,7 @@ final class HouseStore {
         }
         save(changed: false)
         startAgainIfOld()
+        giveStart()
     }
 
     // MARK: For the simulator

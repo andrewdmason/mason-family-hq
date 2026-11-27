@@ -256,8 +256,9 @@ final class MathStore {
     }
 
     /// An answer's been given. Returns the stars it won the run
-    /// (MathPay.answer), and whether it made the day a strong one, which pays a gem.
-    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, gem: Bool) {
+    /// (MathPay.answer), whether it made the day a strong one, which pays a gem,
+    /// and whether a perfect one (the day's first 20 all right), which pays another and coins.
+    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, gem: Bool, perfect: Bool) {
         var seen = saved.seen[question.id] ?? MathBank.Seen()
         seen.times += 1
         seen.last = answer.at
@@ -286,17 +287,23 @@ final class MathStore {
             HouseStore.shared.pay(key: MathPay.gemKey(today), coins: 0, gems: 1, from: "math")
             gem = true
         }
+        // The day's first 20, every one right: a perfect day.
+        var perfect = false
+        if saved.days[today] == Self.dayGoal, (saved.right?[today] ?? 0) >= Self.dayGoal {
+            perfect = HouseStore.shared.pay(key: MathPay.perfectKey(today), coins: MathPay.perfectCoins, gems: 1, from: "math")
+        }
         // Old days aren't needed here: the website has them.
         if saved.days.count > 40 { for key in saved.days.keys.sorted().dropLast(40) { saved.days[key] = nil } }
         if let right = saved.right, right.count > 40 { for key in right.keys.sorted().dropLast(40) { saved.right?[key] = nil } }
         save(wallet: true)
-        return (paid, gem)
+        return (paid, gem, perfect)
     }
 
     /// A run's over (or the app's closing on one): make its stars coins and
-    /// note it for the website. Returns the coins.
+    /// note it for the website. Returns the coins, and of them what a run with
+    /// the most stars yet paid on top (once a day; not the very first run).
     @discardableResult
-    func finish(_ run: MathRun) -> Int {
+    func finish(_ run: MathRun) -> (coins: Int, best: Int) {
         var run = run
         run.economy = HouseState.economy
         run.score = run.stars
@@ -305,12 +312,17 @@ final class MathStore {
         let pay = MathPay.coins(stars: run.stars, carried: saved.wallet.starCarry ?? 0)
         saved.wallet.starCarry = pay.left
         HouseStore.shared.add(coins: pay.coins)
+        var best = 0
+        if let before = saved.wallet.bestStars, before > 0, run.stars > before {
+            let bonus = MathPay.bestBonus(coins: pay.coins)
+            if bonus > 0, HouseStore.shared.pay(key: MathPay.bestKey(Self.day()), coins: bonus, gems: 0, from: "math") { best = bonus }
+        }
         saved.wallet.bestStars = max(saved.wallet.bestStars ?? 0, run.stars)
         saved.wallet.bestWaves = max(saved.wallet.bestWaves, run.waves)
         saved.wallet.bestStreak = max(saved.wallet.bestStreak, run.bestStreak)
         saved.runsPlayed += 1
         save(wallet: true)
-        return pay.coins
+        return (pay.coins + best, best)
     }
 
     // MARK: The website

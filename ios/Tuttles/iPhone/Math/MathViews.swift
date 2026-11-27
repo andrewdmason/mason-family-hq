@@ -52,10 +52,14 @@ final class MathSession {
         let missed: MathQuestion?
         let chosen: Int?
         let line: String
-        /// The coins its stars made (MathPay.coins).
+        /// The coins its stars made (MathPay.coins), and the most stars yet's on top.
         let coins: Int
         var gem = false
         let newBest: Bool
+        /// Of the coins, what the most stars yet paid on top (0 if not, or already today).
+        var best = 0
+        /// The day's first 20 all right: a second gem, and coins.
+        var perfect = false
     }
 
     var stage = Stage.home
@@ -81,6 +85,7 @@ final class MathSession {
     @ObservationIgnored private var timer: Task<Void, Never>?
     /// The run made the day a strong one: a gem.
     @ObservationIgnored private var gem = false
+    @ObservationIgnored private var perfect = false
     private let store = MathStore.shared
     private let audio = MathAudio.shared
 
@@ -136,6 +141,7 @@ final class MathSession {
         asked = []
         streak = 0
         gem = false
+        perfect = false
         stage = .running
         audio.setMusic("music-run")
         game.start()
@@ -218,6 +224,7 @@ final class MathSession {
         let result = store.record(record, question: q, left: left / max(1, total), streak: streak)
         paid = result.stars
         if result.gem { gem = true }
+        if result.perfect { perfect = true }
         if !before, store.goalReachedToday {
             goalJustReached = true
             audio.play("goal", volume: 0.8, delay: 0.5)
@@ -255,8 +262,8 @@ final class MathSession {
         run.score = hud.stars
         let before = store.wallet.bestStars ?? 0
         let best = run.stars > before && before > 0
-        let coins = store.finish(run)
-        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, coins: coins, gem: gem, newBest: best)
+        let pay = store.finish(run)
+        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, coins: pay.coins, gem: gem, newBest: best, best: pay.best, perfect: perfect)
         self.run = nil
         paused = false
         game.hold(false)
@@ -734,7 +741,7 @@ struct MathOverView: View {
                         .font(.system(size: 60, weight: .black, design: .rounded).monospacedDigit())
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("\(ending.run.stars) stars")
-                        Text(ending.newBest ? "Your most stars yet" : "Your best \((math.wallet.bestStars ?? 0).formatted()) stars")
+                        Text(ending.best > 0 ? "Your most stars yet: +\(ending.best) coins" : ending.newBest ? "Your most stars yet" : "Your best \((math.wallet.bestStars ?? 0).formatted()) stars")
                             .font(.system(.subheadline, design: .rounded).weight(.bold))
                             .foregroundStyle(ending.newBest ? .yellow : .white.opacity(0.7))
                     }
@@ -744,7 +751,11 @@ struct MathOverView: View {
                         stat("\(ending.run.distance) m", MathZone.all[MathZone.index(forLevel: ending.run.depth)].name, "figure.run", .white)
                     }
                     .padding(.horizontal, 14)
-                    if ending.gem {
+                    if ending.perfect {
+                        Label("A perfect 20: +2 gems, +\(MathPay.perfectCoins) coins", systemImage: "diamond.fill")
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(.cyan)
+                    } else if ending.gem {
                         Label("A strong day: +1 gem", systemImage: "diamond.fill")
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                             .foregroundStyle(.cyan)

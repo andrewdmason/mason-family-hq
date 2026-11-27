@@ -152,7 +152,10 @@ final class HouseTests: XCTestCase {
         // A room is about a week, each dearer than the last.
         let prices = (1..<coinRooms.count).map { HouseCatalog.roomPrice(owned: $0) }
         XCTAssertEqual(prices, prices.sorted())
-        XCTAssertTrue(prices.allSatisfy { (day * 2...day * 9).contains($0) }, "\(prices)")
+        XCTAssertTrue(prices.prefix(5).allSatisfy { (day * 2...day * 9).contains($0) }, "\(prices)")
+        // The dream rooms after them go on getting dearer, but never past the dearest thing in the yard.
+        XCTAssertLessThan(prices[4], prices[5], "the sixth room costs more than the fifth")
+        XCTAssertLessThanOrEqual(prices.max() ?? 0, HouseCatalog.yard.map(\.coins).max() ?? 0)
         // Something to buy every day, in every room. (The days are counted over the first six rooms, which
         // are what the weeks to the test are for; the rooms after them and the yard are for after it.)
         var cheapest = 0, best = 0
@@ -178,6 +181,55 @@ final class HouseTests: XCTestCase {
         let answers = (1...15).map { MathPay.answer(difficulty: 2, left: 0.5, streak: ($0 - 1) % 4 + 1) }.reduce(0, +)
         let math = MathPay.coins(stars: answers + 700, carried: 0).coins
         XCTAssertTrue((140...220).contains(math), "\(math)")
+    }
+
+    /// Doing everything right pays a good deal more than doing well (Andrew,
+    /// 2026-11-27: "exceptional performance should come with exceptional rewards").
+    func testTheBestPaysTheMost() {
+        // Vocab: a perfect chest is more than gold, which is more than silver; only gold can be perfect.
+        XCTAssertGreaterThan(VocabPay.coins(.gold, perfect: true), VocabPay.coins(.gold, perfect: false))
+        XCTAssertEqual(VocabPay.coins(.silver, perfect: true), VocabPay.bonus(.silver))
+        XCTAssertEqual(VocabPay.chest(.gold, perfect: true, session: "s", day: "d").coins, VocabPay.perfectCoins)
+        // A golden day: at least three chests, every one gold.
+        XCTAssertTrue(VocabPay.golden([.gold, .gold, .gold]))
+        XCTAssertFalse(VocabPay.golden([.gold, .gold]), "too few")
+        XCTAssertFalse(VocabPay.golden([.gold, .gold, .silver, .gold]), "one not gold")
+
+        // Math: a long run of right answers goes on multiplying, to ×3 at the ninth.
+        XCTAssertEqual(MathPay.answer(difficulty: 3, left: 1, streak: 5), 140)
+        XCTAssertEqual(MathPay.answer(difficulty: 3, left: 1, streak: 9), 210)
+        XCTAssertEqual(MathPay.answer(difficulty: 3, left: 1, streak: 30), 210)
+        XCTAssertEqual(MathPay.bestBonus(coins: 120), 120)
+        XCTAssertEqual(MathPay.bestBonus(coins: 900), MathPay.bestMost)
+
+        // A good day against a day with everything right.
+        let day = 300
+        let vocabGood = 2 * VocabPay.bonus(.silver) + 2 * VocabPay.bonus(.gold)
+        let vocabBest = 4 * VocabPay.perfectCoins + VocabPay.goldenCoins
+        // Math's best: the 20 all right, hard and quick, in one run, and the track's stars.
+        let answers = (1...20).map { MathPay.answer(difficulty: 3, left: 0.8, streak: $0) }.reduce(0, +)
+        let mathBest = MathPay.coins(stars: answers + 700, carried: 0).coins + MathPay.perfectCoins
+        XCTAssertGreaterThan(vocabBest, vocabGood * 2)
+        XCTAssertTrue((day * 2...day * 3).contains(vocabBest + mathBest), "\(vocabBest + mathBest) on the best day")
+    }
+
+    /// Every house is given coins to build with, the once, kept so it's never given again.
+    func testTheCoinsToStartWithAreGivenOnce() throws {
+        var state = HouseState()
+        XCTAssertTrue(state.giveStart(day: "2026-11-27"))
+        XCTAssertFalse(state.giveStart(day: "2026-11-28"))
+        XCTAssertEqual(state.coins, HouseState.startingCoins)
+        XCTAssertEqual(state.days.map(\.from), ["start"])
+        // Enough for the second room and something in the yard.
+        XCTAssertGreaterThanOrEqual(HouseState.startingCoins, HouseCatalog.roomPrice(owned: 1) + HouseCatalog.yard.map(\.coins).min()!)
+        // Kept through the phone and the website, however many keys are paid after it.
+        for n in 0..<700 { state.pay(key: "chest:\(n)", coins: 1, gems: 0, from: "vocab", day: "d") }
+        var copy = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(state))
+        XCTAssertFalse(copy.giveStart(day: "2026-11-29"))
+        // A house from before there were gifts gets them.
+        var old = try JSONDecoder().decode(HouseState.self, from: Data(#"{"coins":40,"economy":2}"#.utf8))
+        XCTAssertTrue(old.giveStart(day: "2026-11-27"))
+        XCTAssertEqual(old.coins, 40 + HouseState.startingCoins)
     }
 
     /// Vocab's winnings wait for the day's ten minutes: a chest only on its own day, a boss any day.

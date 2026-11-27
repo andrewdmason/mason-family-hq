@@ -244,6 +244,15 @@ in each room fixed spots, each with its own things to choose between.
   are done (a chest not banked by midnight is lost, a boss waits), each under
   a key so nothing is paid twice. A house kept under the first economy
   (`HouseState.economy` 1, with back pay) starts again empty.
+  The best of it pays the most: a Vocab session with every answer right is a
+  perfect chest (60, not gold's 40); the ten minutes done with every chest of
+  the day gold (at least three) is a golden day, a gem and 100 coins; in Math
+  right answers in a row multiply up to ×3 (the ninth), the day's first 20 all
+  right is a perfect day (a second gem and 100 coins), and a run with the most
+  stars yet pays its coins twice (up to 300 more), once a day. All of it is in
+  `HousePay.swift`, checked in `testTheBestPaysTheMost`.
+- Every house is given 1,500 coins to start with (`HouseState.startingCoins`,
+  kept in `gifts` so it's never given twice), shown to the parents as "To start".
 - Vocab and Math have the same button at the top right (`HouseStatusButton`
   in `HouseViews.swift`): today's Vocab time against the ten minutes (a ring,
   then a tick), the coins and the gems. Tapping it slides the house up over
