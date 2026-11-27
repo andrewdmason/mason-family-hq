@@ -264,14 +264,25 @@ in each room fixed spots, each with its own things to choose between.
   back out of: the town is dragged about and pinched closer from anywhere
   (`HouseStage.Roam`), and how close the camera is says what's shown
   (`HouseStage.seen`). Close to a house it opens; closer still the room in
-  the middle of the screen is the one you're in, its walls up, a marker on
-  each of its spots, and whatever's in front of it or over it a ghost of
-  itself. A tap on a house or a room only flies there, and the map button
-  flies back out to the whole street. A marker says what goes in its spot
-  (`HouseSpot.symbol`): a white tag with a picture and a "+" where nothing's
-  been chosen, a small dot where something has. Tapping one brings a card up
-  over the bottom of the screen and holds that room in focus; another marker
-  changes what the card's for, and a tap anywhere else puts it away.
+  the middle of the screen is the one you're in, its walls up, and whatever's
+  in front of it or over it a ghost of itself. A tap on a house or a room
+  only flies there, and the map button flies back out to the whole street.
+  At the bottom of the screen are two buttons that keep their corners
+  wherever the camera is. On the left, always, Rooms (`HouseRoomSheet`): a
+  card to move a room from or add one, which from anywhere flies to the
+  kid's own house. On the right, while a room of theirs is in focus,
+  "Decorate kitchen", the only thing in red. The floors of the open house
+  are a short column up the right edge (All, 2, G, B). In a room of the
+  other house, whose room it is is said at the top. Decorate brings a card
+  up over the bottom of the screen (`HouseDecorSheet`) and holds the room in
+  focus: a tab for each
+  of the room's spots, on the first that's still as it came, and under them
+  what can go there. Only while the card's up does each spot have a marker
+  in the room, which says what goes there (`HouseSpot.symbol`): a white tag
+  with a picture and a "+" where nothing's been chosen, a small dot where
+  something has. A tab or a marker changes what the card's for, and a tap
+  anywhere else puts it away. With no card up, a tap on a thing in their
+  room brings it up on that thing's spot.
   A floor picked is the one you're on: those over it go and those
   under it fade. The houses stand
   in a town (`HouseLand.swift`): one ground picture of a block and its roads,

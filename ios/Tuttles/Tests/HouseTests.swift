@@ -391,6 +391,39 @@ final class HouseTests: XCTestCase {
 
     // MARK: The markers on spots
 
+    func testASpotsMarkerIsOnlyThereWithTheCardUp() {
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        stage.setDecorating(true)
+        stage.show([HouseShown(kid: "me", name: "Me", mine: true, state: HouseState(), look: .plain)])
+        stage.fly(to: .room("me", "bedroom"), animated: false)
+        func marker(_ spot: String) -> Bool { stage.scene.rootNode.childNode(withName: "spot:me:bedroom:\(spot)", recursively: true) != nil }
+        // In the room, it's just the room.
+        XCTAssertFalse(marker("bed"))
+        // The card up for one spot: every spot of the room has its marker.
+        stage.lift("me", "bedroom", spot: "bed")
+        XCTAssertTrue(marker("bed"))
+        XCTAssertTrue(marker("rug"))
+        stage.drop()
+        XCTAssertFalse(marker("bed"))
+    }
+
+    func testTheSpotsTheCardHasTabsFor() {
+        guard let kitchen = HouseCatalog.room("kitchen"), let table = kitchen.spot("table"), let food = kitchen.spot("food"),
+              let rug = HouseCatalog.room("bedroom")?.spot("rug"), let bed = HouseCatalog.room("bedroom")?.spot("bed") else { return XCTFail("no such spots") }
+        var state = HouseState()
+        // What goes on the table can't be chosen until there's a table.
+        state.placed["kitchen.table"] = ""
+        XCTAssertFalse(state.spots(of: kitchen).contains(food))
+        state.placed["kitchen.table"] = table.items[0].id
+        XCTAssertTrue(state.spots(of: kitchen).contains(food))
+        // A spot's untouched with nothing in it, or only what it came with.
+        XCTAssertTrue(state.untouched(rug, of: "bedroom"))
+        XCTAssertEqual(state.untouched(bed, of: "bedroom"), bed.starter != nil)
+        state.placed["bedroom.rug"] = rug.items.first { !$0.free }?.id
+        XCTAssertFalse(state.untouched(rug, of: "bedroom"))
+    }
+
     func testEverySpotsMarkerHasAPicture() {
         for room in HouseCatalog.rooms {
             for spot in room.spots {
