@@ -907,18 +907,25 @@ final class HouseBuilt {
             insides[f]?.isHidden = !contents
             lids[f]?.isHidden = !lidded
             guard want != standing[f] else { continue }
+            // Walls that aren't standing now are hidden, never taken out of the house. (They were once faded
+            // and then removed by the fade itself, which runs on the renderer's thread: dragged about fast,
+            // that could take a wall out at the moment this was putting it back, and it crashed.)
             if let was = standing[f], let old = walls[f]?[was] {
-                if animated { old.runAction(.sequence([.fadeOut(duration: 0.18), .removeFromParentNode()])) } else { old.removeFromParentNode() }
+                old.removeAllActions()
+                if animated { old.runAction(.sequence([.fadeOut(duration: 0.18), .hide()])) } else { old.isHidden = true }
             }
             if let want {
                 let made = walls[f]?[want] ?? wallsNode(f, want)
                 walls[f, default: [:]][want] = made
                 made.removeAllActions()
                 made.simdPosition.y = Float(f) * HousePlan.storey
+                made.isHidden = false
                 made.opacity = animated ? 0 : 1
                 if made.parent == nil { node.addChildNode(made) }
                 if animated { made.runAction(.fadeIn(duration: 0.18)) }
             }
+            // (With no fade, anything still on its way out is put away at once.)
+            if !animated { for (how, other) in walls[f] ?? [:] where how != want { other.removeAllActions(); other.isHidden = true } }
             standing[f] = want
         }
         top.isHidden = floor != nil
@@ -945,6 +952,11 @@ final class HouseBuilt {
             // (With the house open, it's the family that's about in it: HouseLife.)
             who.node.isHidden = !seen || floor != nil
         }
+    }
+
+    /// For the tests: every way a floor's walls have stood so far, and which is standing now.
+    func wallNodes(floor f: Int) -> (all: [SCNNode], standing: SCNNode?) {
+        (Array((walls[f] ?? [:]).values), standing[f].flatMap { walls[f]?[$0] })
     }
 
     /// Turn whoever lives there to face where they're looked at from.

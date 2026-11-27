@@ -212,6 +212,26 @@ final class HouseYardTests: XCTestCase {
         XCTAssertEqual(back.names["bedroom.pet"], "Biscuit")
     }
 
+    func testWallsThatComeDownStayInTheHouse() {
+        // Dragging about swaps which walls stand, over and over. The ones not standing are hidden and
+        // kept, so nothing is ever taken out of the scene by a fade that's still running.
+        let built = HouseBuilt(HouseTown.parents, on: HouseTown.parentsLot, sky: .noon)
+        let views = [HouseVantage(x: 1, z: 1), HouseVantage(x: -1, z: 1), .flat, HouseVantage(x: 1, z: -1), HouseVantage(x: 1, z: 1)]
+        for (i, view) in (views + views + views).enumerated() {
+            built.present(floor: 0, view: view, focus: i % 3 == 0 ? "living" : i % 3 == 1 ? "pool" : nil, animated: true)
+            let walls = built.wallNodes(floor: 0)
+            XCTAssertNotNil(walls.standing)
+            XCTAssertEqual(walls.standing?.isHidden, false)
+            for node in walls.all { XCTAssertTrue(node.parent === built.node, "a wall was taken out of the house") }
+        }
+        XCTAssertGreaterThan(built.wallNodes(floor: 0).all.count, 2)
+        // Shut again, with no fade: only the shut walls show.
+        built.present(floor: nil, view: .shut, focus: nil, animated: false)
+        let shut = built.wallNodes(floor: 0)
+        XCTAssertEqual(shut.all.filter { !$0.isHidden }.count, 1)
+        XCTAssertEqual(shut.standing?.isHidden, false)
+    }
+
     // MARK: The family
 
     func testTheFamilyGetAboutMomAndDads() throws {

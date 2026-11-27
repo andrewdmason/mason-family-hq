@@ -530,7 +530,8 @@ final class HouseLife {
         sign.castsShadow = false
         sign.renderingOrder = 90
         node.addChildNode(sign)
-        sign.runAction(.sequence([.wait(duration: 2.2), .fadeOut(duration: 0.4), .removeFromParentNode()]))
+        // (Hidden when it's done, not removed: nothing's taken out of the scene from the renderer's thread.)
+        sign.runAction(.sequence([.wait(duration: 2.2), .fadeOut(duration: 0.4), .hide()]))
     }
 
     /// A thing's been tapped: whoever's nearest and not busy comes over to it, if it's something to sit on or use.
