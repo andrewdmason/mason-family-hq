@@ -315,6 +315,7 @@ struct HouseHomeView: View {
         .toolbar {
             if close == nil {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
+                if !parents { ToolbarItem(placement: .topBarLeading) { homeButton } }
                 ToolbarItem(placement: .topBarLeading) { mapButton }
                 ToolbarItem(placement: .topBarLeading) { turnButton }
                 if parents {
@@ -337,7 +338,11 @@ struct HouseHomeView: View {
             }
             store.openHouse()
             demo()
+            // (The time of day first, so nothing's built for noon and then again for the evening.)
+            stage.setSky(Self.sky())
             show()
+            // It opens on their own house, every time. (The parents, who have none here, see the family's end of the street.)
+            if !parents { stage.fly(to: .house(me), animated: false) }
             ready = true
             let args = CommandLine.arguments
             if args.contains("--house-sizes") {
@@ -455,7 +460,7 @@ struct HouseHomeView: View {
 
     private func show() {
         stage.setDecorating(!parents)
-        stage.show(shown())
+        stage.show(shown(), staged: true)
     }
 
     private func refresh(trying: (Choosing, HouseItem?)? = nil, popping: String? = nil) {
@@ -626,6 +631,17 @@ struct HouseHomeView: View {
         kid == me && !parents ? house.state : stage.state(of: kid)
     }
 
+    /// Home: back to their own house, open, from wherever the camera's got to.
+    private func home() {
+        go(.house(me))
+    }
+
+    private var homeButton: some View {
+        Button(action: home) { Image(systemName: "house.fill") }
+            .accessibilityLabel("My house")
+            .accessibilityIdentifier("house.home")
+    }
+
     /// The map button: out to the whole neighbourhood; from there, back to the family's end of the street, as it's first shown.
     private func map() {
         if placing != nil || moving { stopPlacing() }
@@ -638,7 +654,7 @@ struct HouseHomeView: View {
     }
 
     private var mapButton: some View {
-        Button(action: map) { Image(systemName: wide ? "house.fill" : "map.fill") }
+        Button(action: map) { Image(systemName: wide ? "building.2.fill" : "map.fill") }
             .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
     }
 
@@ -682,9 +698,19 @@ struct HouseHomeView: View {
                     }
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Close")
-                    // Nothing to go back from: the map button, out to the whole neighbourhood and home again.
+                    // Nothing to go back from: home to their own house; and the map button, out to the whole neighbourhood and back to the street.
+                    if !parents {
+                        Button(action: home) {
+                            Image(systemName: "house.fill")
+                                .font(.system(.headline, design: .rounded).weight(.heavy))
+                                .frame(width: 42, height: 42)
+                        }
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .accessibilityLabel("My house")
+                        .accessibilityIdentifier("house.home")
+                    }
                     Button(action: map) {
-                        Image(systemName: wide ? "house.fill" : "map.fill")
+                        Image(systemName: wide ? "building.2.fill" : "map.fill")
                             .font(.system(.headline, design: .rounded).weight(.heavy))
                             .frame(width: 42, height: 42)
                     }

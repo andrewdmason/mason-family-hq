@@ -384,9 +384,13 @@ in each room fixed spots, each with its own things to choose between.
   south-east, so front doors are on the south: houses north of Avalon open
   onto it, those south of it onto Russell. Each house has its fence and
   trees at the back (`HouseLand.swift`) and a path from its door to the
-  street. It opens on the family's end (the three houses framed together);
-  the map button pulls back to the whole neighbourhood and, from there, goes
-  home again. The town drags as far as its edges and pinches in as far as a
+  street. It opens on the kid's own house, open, every time (the parents,
+  who have none here, see the family's end of the street: the three houses
+  framed together). The house button at the top comes back to it from
+  anywhere; the map button pulls back to the whole neighbourhood and, from
+  there, goes to the family's end of the street. Their own house is built
+  first and the others over the next moments, and a house is only built
+  again when it's changed (`HouseStage.show(_:staged:)`). The town drags as far as its edges and pinches in as far as a
   bit of a room.
   While the house is up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,

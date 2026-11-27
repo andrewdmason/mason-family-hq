@@ -232,6 +232,57 @@ final class HouseYardTests: XCTestCase {
         XCTAssertEqual(shut.standing?.isHidden, false)
     }
 
+    // MARK: Opening the street
+
+    func testOnlyAHouseThatsChangedIsBuiltAgainAndTheirOwnComesFirst() {
+        var mine = HouseState()
+        mine.rooms = ["bedroom", "living"]
+        mine.settle()
+        let brother = HouseShown(kid: "b", name: "Oscar", mine: false, state: HouseState(), look: .oscar)
+        func houses(_ state: HouseState) -> [HouseShown] { [HouseShown(kid: "me", name: "Sebastian", mine: true, state: state, look: .sebastian), brother] }
+        let stage = HouseStage()
+        func node(_ kid: String) -> SCNNode? { stage.scene.rootNode.childNode(withName: "house:\(kid)", recursively: false) }
+        // Nothing's built until there's a street to show.
+        XCTAssertNil(node(HouseTown.parentsID))
+        stage.show(houses(mine))
+        let first = (node("me"), node("b"), node(HouseTown.parentsID))
+        XCTAssertNotNil(first.0); XCTAssertNotNil(first.1); XCTAssertNotNil(first.2)
+        // Shown again as they were: the same houses, not new ones.
+        stage.show(houses(mine))
+        XCTAssertTrue(node("me") === first.0 && node("b") === first.1 && node(HouseTown.parentsID) === first.2)
+        // One of them changed: that one's built again, and only that one.
+        var more = mine
+        more.rooms.append("kitchen")
+        more.settle()
+        stage.show(houses(more))
+        XCTAssertFalse(node("me") === first.0)
+        XCTAssertTrue(node("b") === first.1 && node(HouseTown.parentsID) === first.2)
+        XCTAssertEqual(stage.state(of: "me")?.rooms, more.rooms)
+
+        // As the screen asks for it: their own house at once, the others over the next moments.
+        let staged = HouseStage()
+        func later(_ kid: String) -> SCNNode? { staged.scene.rootNode.childNode(withName: "house:\(kid)", recursively: false) }
+        staged.show(houses(mine), staged: true)
+        XCTAssertNotNil(later("me"))
+        XCTAssertNil(later("b"))
+        XCTAssertNil(later(HouseTown.parentsID))
+        // Their own is there to open straight away, with the family not far behind.
+        staged.fly(to: .house("me"), animated: false)
+        XCTAssertEqual(staged.focus, .house("me"))
+        // A house that hasn't arrived is built there and then if it's flown to.
+        staged.fly(to: .house("b"), animated: false)
+        XCTAssertNotNil(later("b"))
+        // And the rest arrive on their own.
+        let arrived = expectation(description: "every house has arrived")
+        func check(_ tries: Int) {
+            if later(HouseTown.parentsID) != nil && !staged.life.whereabouts.isEmpty { arrived.fulfill() }
+            else if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { check(tries - 1) } }
+        }
+        check(100)
+        wait(for: [arrived], timeout: 10)
+        XCTAssertEqual(staged.life.whereabouts.map(\.name), ["Sebastian", "Oscar", "Dad", "Mom", "Charlie", "Pippy"])
+    }
+
     // MARK: The family
 
     func testTheFamilyGetAboutMomAndDads() throws {

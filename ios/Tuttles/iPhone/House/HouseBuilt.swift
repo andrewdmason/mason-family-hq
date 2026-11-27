@@ -167,7 +167,10 @@ final class HouseBuilt {
 
     var radius: Float { simd_length(reach.hi - reach.lo) / 2 }
 
-    private var reach: (lo: SIMD2<Float>, hi: SIMD2<Float>) {
+    private var reach: (lo: SIMD2<Float>, hi: SIMD2<Float>) { Self.reach(of: all) }
+
+    /// The corners of everything above ground in a house, on its lot, from where its rooms and yard things stand.
+    static func reach(of all: [String: HousePlot]) -> (lo: SIMD2<Float>, hi: SIMD2<Float>) {
         var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
         for (room, p) in all where p.floor >= 0 {
             let (w, d) = HouseLayout.size(room, p)

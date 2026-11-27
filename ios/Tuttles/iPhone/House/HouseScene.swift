@@ -166,7 +166,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         cameraNode.camera = c
         scene.rootNode.addChildNode(cameraNode)
         light()
-        show([])
+        // (Nothing's built until there's a street to show: `show`.)
+        frame()
     }
 
     // MARK: Light
@@ -226,32 +227,77 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     // MARK: The houses
 
+    /// The way of showing the street that's under way: a later one stops an earlier one's houses from arriving.
+    private var showing = 0
+
     /// Everyone's houses, as they stand now. Mom & Dad's is added to them.
-    func show(_ houses: [HouseShown]) {
-        self.houses = houses.filter { $0.kid != HouseTown.parentsID } + [HouseTown.parents]
-        lots = HouseTown.lots(for: self.houses.map { ($0.kid, $0.name) })
+    /// Only what's changed since they were last shown is built again. `staged`
+    /// (as the screen asks for; not the tests), their own house is built at
+    /// once and the others one at a time over the next moments, so the street's
+    /// there without waiting for all of it.
+    func show(_ houses: [HouseShown], staged: Bool = false) {
+        let next = houses.filter { $0.kid != HouseTown.parentsID } + [HouseTown.parents]
+        let nextLots = HouseTown.lots(for: next.map { ($0.kid, $0.name) })
+        let was = Dictionary(uniqueKeysWithValues: self.houses.map { ($0.kid, $0) })
+        // Whoever's gone, or is on another lot now, comes down.
+        for kid in Array(built.keys) where !next.contains(where: { $0.kid == kid }) || nextLots[kid] != lots[kid] {
+            built[kid]?.node.removeFromParentNode()
+            built[kid] = nil
+        }
+        // Their own first, Mom & Dad's (the biggest) last.
+        let changed = next.filter { built[$0.kid] == nil || was[$0.kid] != $0 }
+            .sorted { ($0.mine ? 0 : $0.kid == HouseTown.parentsID ? 2 : 1) < ($1.mine ? 0 : $1.kid == HouseTown.parentsID ? 2 : 1) }
+        self.houses = next
+        lots = nextLots
+        showing += 1
+        let run = showing
         // The family: each kid, Mom and Dad, and the pets.
         var family: [HouseLife.Who] = []
-        for house in self.houses where house.kid != HouseTown.parentsID {
+        for house in next where house.kid != HouseTown.parentsID {
             family.append(.person(house.look, name: house.name.split(separator: " ").first.map(String.init) ?? house.name, height: 1.25))
         }
         family.append(.person(HouseTown.parents.look, name: "Dad", height: 1.5))
         if let mom = HouseTown.parents.partner { family.append(.person(mom, name: "Mom", height: 1.45)) }
         family += [.dog(name: "Charlie"), .cat(name: "Pippy")]
-        life.gather(family)
-        rebuild()
-        // The family's end of the street: every house that's somebody's, all in view.
-        var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
-        for b in built.values {
-            lo = simd_min(lo, SIMD2(b.middle.x, b.middle.z) - SIMD2(repeating: b.radius))
-            hi = simd_max(hi, SIMD2(b.middle.x, b.middle.z) + SIMD2(repeating: b.radius))
+        frame()
+        guard staged else {
+            life.gather(family)
+            for house in changed { rebuild(house.kid) }
+            present(animated: false)
+            return
         }
+        var later: [() -> Void] = [{ [weak self] in self?.life.gather(family) }]
+        for (n, house) in changed.enumerated() {
+            if n == 0, house.mine { rebuild(house.kid) } else { later.append { [weak self] in self?.rebuild(house.kid) } }
+        }
+        present(animated: false)
+        func step() {
+            guard run == showing, !later.isEmpty else { return }
+            later.removeFirst()()
+            present(animated: false)
+            DispatchQueue.main.async(execute: step)
+        }
+        DispatchQueue.main.async(execute: step)
+    }
+
+    /// The family's end of the street: every house that's somebody's, all in
+    /// view. Worked out from where their rooms are, not from the houses as
+    /// built, so it's the same before they've all arrived.
+    private func frame() {
+        var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
+        for house in houses {
+            guard let lot = lots[house.kid] else { continue }
+            let reach = HouseBuilt.reach(of: house.state.layout)
+            let middle = SIMD2(lot.x, lot.z) + (reach.lo + reach.hi) / 2, radius = simd_length(reach.hi - reach.lo) / 2
+            lo = simd_min(lo, middle - SIMD2(repeating: radius))
+            hi = simd_max(hi, middle + SIMD2(repeating: radius))
+        }
+        guard lo.x <= hi.x else { return }
         home = Eye(target: SIMD3((lo.x + hi.x) / 2, 0.8, (lo.y + hi.y) / 2), yaw: Self.corner, distance: fit(simd_length(hi - lo) / 2))
         // Until somebody's moved it, that's what's looked at.
         if !moved {
             lock.lock(); eye = home; goal = home; lock.unlock()
         }
-        present(animated: false)
     }
 
     /// How far off the camera has to be to take in this much, either way from what it looks at.
@@ -506,10 +552,13 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             // As it's first shown, from the corner it's first seen from.
             goal = Eye(target: home.target, yaw: nearest(Self.corner, to: goal.yaw), distance: home.distance)
         case .house(let kid):
+            // (A house that hasn't arrived yet is built now, to fly to.)
+            if built[kid] == nil { lock.unlock(); rebuild(kid); lock.lock() }
             guard let b = built[kid] else { lock.unlock(); return }
             goal.target = b.middle + SIMD3(0, 0.8, 0)
             goal.distance = min(max(b.radius * 3.4, 38), opens - 6)
         case .room(let kid, let room):
+            if built[kid] == nil { lock.unlock(); rebuild(kid); lock.lock() }
             guard let b = built[kid], let at = b.middle(of: room), let p = b.all[room] else { lock.unlock(); return }
             floor = p.floor
             goal.target = at + SIMD3(0, 0.8, 0)
