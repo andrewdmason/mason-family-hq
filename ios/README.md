@@ -255,17 +255,30 @@ in each room fixed spots, each with its own things to choose between.
   so they hold together.
 - It's SceneKit from one fixed corner (`HouseScene.swift`). A room is a floor
   and two walls. A wall with a room behind it is down to the knee with a gap,
-  except from inside that room. On the street each house is shut, with
-  front walls, windows, a door and roofs, and opens when it's tapped.
-  Inside, a floor picked is the one you're on: those over it go and those
-  under it fade (coming back out of a room picks its floor). In a room
-  nothing in front of it or over it is shown. The houses stand
+  except from inside that room, where it's up with a doorway through it (and
+  what hangs on it hangs over the doorway). Each floor over the ground has a
+  flight of stairs up to it (`HouseLayout.stairs`): outside, since a room's
+  floor is all spots, beside a room of that floor where nothing's built, with
+  a door at the top when the house is shut. From far off each house is shut, with
+  front walls, windows, a door and roofs. Nothing's a screen to go into and
+  back out of: the town is dragged about and pinched closer from anywhere
+  (`HouseStage.Roam`), and how close the camera is says what's shown
+  (`HouseStage.seen`). Close to a house it opens; closer still the room in
+  the middle of the screen is the one you're in, its walls up, a marker on
+  each of its spots, and whatever's in front of it or over it a ghost of
+  itself. A tap on a house or a room only flies there, and the map button
+  flies back out to the whole street. A marker says what goes in its spot
+  (`HouseSpot.symbol`): a white tag with a picture and a "+" where nothing's
+  been chosen, a small dot where something has. Tapping one brings a card up
+  over the bottom of the screen and holds that room in focus; another marker
+  changes what the card's for, and a tap anywhere else puts it away.
+  A floor picked is the one you're on: those over it go and those
+  under it fade. The houses stand
   in a town (`HouseLand.swift`): one ground picture of a block and its roads,
   repeated; each house on a block of its own with a fence and trees at the
-  back, the street going up the screen, trees on the blocks between. On the
-  street a finger drags the town about and two pinch it closer or further
-  (`HouseStage.Roam`), as far as the trees go; going into a house and back
-  puts it as it was. While the street's up a drag doesn't slide the menu out. Looking
+  back, the street going up the screen, trees on the blocks between. The
+  town drags as far as the trees go and pinches in as far as a bit of a room.
+  While the house is up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the

@@ -316,4 +316,90 @@ final class HouseTests: XCTestCase {
         roam.pinch(by: 0.0001, about: .zero, scale: 12, height: 800)
         XCTAssertEqual(roam.zoom, HouseStage.Roam.zooms.lowerBound)
     }
+
+    func testAStreetOfBigHousesCanStillBePinchedIntoARoom() {
+        // The more the street takes in, the further in it goes: down to a bit of a room, whatever it started from.
+        var roam = HouseStage.Roam()
+        roam.pinch(by: 100, about: .zero, scale: 45, height: 800)
+        XCTAssertEqual(roam.zoom, 10)
+        XCTAssertEqual(45 / roam.zoom, HouseStage.Roam.closest)
+    }
+
+    func testHowCloseTheCameraIsSaysWhatsOpen() {
+        var theirs = HouseState()
+        theirs.rooms = ["bedroom", "living", "kitchen"]
+        theirs.cells = ["bedroom": [0, 0, 0], "living": [0, 0, -1], "kitchen": [-1, 1, -1]]
+        theirs.settle()
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        stage.show([HouseShown(kid: "me", name: "Me", mine: true, state: HouseState(), look: .plain),
+                    HouseShown(kid: "them", name: "Them", mine: false, state: theirs, look: .plain)])
+        // The whole street: both shut.
+        XCTAssertEqual(stage.focus, .street)
+        XCTAssertFalse(stage.moved)
+        // Flown to a house, it's open, and stays open while it's nudged about.
+        stage.fly(to: .house("them"), animated: false)
+        stage.drag(by: CGPoint(x: 6, y: -4), height: 800)
+        XCTAssertEqual(stage.focus, .house("them"))
+        XCTAssertTrue(stage.moved)
+        // Pinched in on it, the room in the middle is the one they're in; out again, the house; further, the street.
+        stage.pinch(by: 1.6, about: .zero, height: 800)
+        guard case .room("them", _) = stage.focus else { return XCTFail("pinched in, no room's in focus: \(stage.focus)") }
+        stage.pinch(by: 1 / 1.6, about: .zero, height: 800)
+        XCTAssertEqual(stage.focus, .house("them"))
+        stage.pinch(by: 0.4, about: .zero, height: 800)
+        XCTAssertEqual(stage.focus, .street)
+        // Dragged right off a house it was in a room of, that house shuts.
+        stage.fly(to: .room("me", "bedroom"), animated: false)
+        stage.drag(by: CGPoint(x: 3, y: 0), height: 800)
+        XCTAssertEqual(stage.focus, .room("me", "bedroom"))
+        stage.drag(by: CGPoint(x: 900, y: 0), height: 800)
+        XCTAssertEqual(stage.focus, .street)
+        // A card up holds its room in focus, however the town's moved, until it's gone.
+        stage.fly(to: .room("me", "bedroom"), animated: false)
+        stage.lift("me", "bedroom", spot: "bed")
+        stage.pinch(by: 0.2, about: .zero, height: 800)
+        XCTAssertEqual(stage.focus, .room("me", "bedroom"))
+        stage.drop()
+        XCTAssertEqual(stage.focus, .street)
+        // And the way back out is how it was first shown.
+        stage.fly(to: .street, animated: false)
+        XCTAssertFalse(stage.moved)
+    }
+
+    // MARK: Stairs
+
+    func testAFloorBuiltOnGetsStairsUpToIt() {
+        // One floor: no stairs.
+        XCTAssertEqual(HouseLayout.stairs(["bedroom": [0, 0, 0], "living": [1, 0, 0]]), [])
+        // A room on top of the first: stairs up to it, on its right, where nothing's built.
+        var cells = ["bedroom": [0, 0, 0], "den": [0, 1, 0]]
+        XCTAssertEqual(HouseLayout.stairs(cells), [HouseLayout.Stairs(top: [0, 1, 0], right: true)])
+        XCTAssertEqual(HouseLayout.stairs(cells).first?.foot, [1, 0, 0])
+        // A room built where they stood: they go to the front instead.
+        cells["living"] = [1, 0, 0]
+        XCTAssertEqual(HouseLayout.stairs(cells), [HouseLayout.Stairs(top: [0, 1, 0], right: false)])
+        // One flight to a floor, however many rooms are on it, beside the one nearest the front; and one to each floor.
+        cells = ["bedroom": [0, 0, 0], "living": [0, 0, 1], "den": [0, 1, 0], "kitchen": [0, 1, 1], "bathroom": [0, 2, 0]]
+        XCTAssertEqual(HouseLayout.stairs(cells), [HouseLayout.Stairs(top: [0, 1, 1], right: true), HouseLayout.Stairs(top: [0, 2, 0], right: true)])
+        // Never where a room is, on any floor; and sooner on the lot than off the edge of it.
+        cells = ["bedroom": [2, 0, 0], "den": [2, 1, 0]]
+        XCTAssertEqual(HouseLayout.stairs(cells), [HouseLayout.Stairs(top: [2, 1, 0], right: false)])
+        // The basement's under the ground: no stairs for it here.
+        XCTAssertEqual(HouseLayout.stairs(["bedroom": [0, 0, 0], "basement": [0, -1, 0]]), [])
+    }
+
+    // MARK: The markers on spots
+
+    func testEverySpotsMarkerHasAPicture() {
+        for room in HouseCatalog.rooms {
+            for spot in room.spots {
+                XCTAssertNotNil(UIImage(systemName: spot.symbol), "\(room.id).\(spot.id): no symbol called \(spot.symbol)")
+            }
+        }
+        // What goes there, where it's one sort of thing; a plus for a corner that takes all sorts.
+        XCTAssertEqual(HouseCatalog.room("bedroom")?.spot("bed")?.symbol, "bed.double.fill")
+        XCTAssertEqual(HouseCatalog.room("den")?.spot("corner")?.symbol, "plus")
+        XCTAssertEqual(HouseCatalog.room("den")?.spot("walls")?.symbol, "paintbrush.fill")
+    }
 }

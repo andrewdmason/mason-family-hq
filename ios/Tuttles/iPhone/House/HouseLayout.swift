@@ -94,6 +94,44 @@ enum HouseLayout {
         return da != db ? da < db : a.lexicographicallyPrecedes(b)
     }
 
+    /// A flight of stairs up the outside of the house, to a room on the floor above.
+    struct Stairs: Equatable {
+        /// The room at the top of them.
+        let top: [Int]
+        /// Which side of that room they climb: its right (the next square across), or its front (the next back).
+        let right: Bool
+
+        /// The empty square they stand in, on the floor they start from.
+        var foot: [Int] { right ? [top[0] + 1, top[1] - 1, top[2]] : [top[0], top[1] - 1, top[2] + 1] }
+    }
+
+    /// The stairs a house has: one flight up to each floor over the ground,
+    /// so there's a way up from the day a floor's first built on. Rooms are
+    /// full of their own things, so the stairs go up the outside, beside a
+    /// room of that floor where nothing's built, on the side that's open to
+    /// whoever's looking: on the lot if they can be, to the right sooner
+    /// than the front (where the door is), and nearest the front of the lot.
+    /// A floor with no such side has none.
+    static func stairs(_ cells: [String: [Int]]) -> [Stairs] {
+        let taken = Set(cells.values)
+        var out: [Stairs] = []
+        for floor in Set(cells.values.map { $0[1] }).sorted() where floor > 0 {
+            var best: (stairs: Stairs, rank: [Int])?
+            for top in cells.values where top[1] == floor {
+                for right in [true, false] {
+                    let stairs = Stairs(top: top, right: right)
+                    let foot = stairs.foot
+                    // Nothing built in that square: on the ground, so on no floor of it.
+                    guard !taken.contains([foot[0], 0, foot[2]]) else { continue }
+                    let rank = [lot.contains(foot[0]) && lot.contains(foot[2]) ? 0 : 1, right ? 0 : 1, -(top[0] + top[2]), top[0]]
+                    if best == nil || rank.lexicographicallyPrecedes(best!.rank) { best = (stairs, rank) }
+                }
+            }
+            if let best { out.append(best.stairs) }
+        }
+        return out
+    }
+
     /// What a floor's called.
     static func name(of floor: Int) -> String {
         switch floor {
