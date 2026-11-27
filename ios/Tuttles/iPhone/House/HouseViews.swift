@@ -6,14 +6,19 @@ import SwiftUI
 // anywhere. Close to a house it opens, and closer still the room in the
 // middle is the one they're in; a tap on a house or a room flies there, and
 // the map button flies back out to the street. Their own house can be
-// changed: the room they're in has a marker on each spot, and tapping one
-// brings up a card of what can go there, tried in the room before it's paid
-// for. Another marker changes what the card's for; a tap anywhere else puts
-// it away. In the house they add rooms, putting each where they like, and
-// move them about (HouseLayout.swift); a house of more than one floor can be
-// looked at a floor at a time. The other house can be looked round and not
-// touched. The parents see the street the same way, and what each purse has
-// had paid in.
+// changed, from two buttons that keep their corners at the bottom of the
+// screen. On the right, while a room of theirs is in focus, "Decorate
+// kitchen": the one red thing there is. It brings up a card with a tab for
+// each of the room's spots and, under them, what can go in the one picked,
+// tried in the room before it's paid for. While the card's up each spot has
+// a marker in the room, and a marker or a tab changes what the card's for;
+// a tap anywhere else puts it away. A tap on a thing in the room brings the
+// card up on its spot. On the left, always, Rooms: a card to move a room
+// from, or add one, putting it where they like (HouseLayout.swift). A house
+// of more than one floor can be looked at a floor at a time, from a picker
+// up the right edge. The other house can be looked round and not touched:
+// in a room of it, whose room it is is said at the top. The parents see the
+// street the same way, and what each purse has had paid in.
 
 /// Coins and gems, wherever they're shown: a pill each, or, in a bar, the
 /// two together with the bar's own glass round them.
@@ -345,15 +350,15 @@ struct HouseHomeView: View {
             stage.drop()
             refresh()
         }
-        // One card for whichever spot is being chosen for: tapping another marker changes what's on it, without it going away.
+        // One card for the room's spots: a tab or a marker changes which it's for, without it going away.
         .sheet(isPresented: Binding(get: { choosing != nil }, set: { if !$0 { choosing = nil } }),
                onDismiss: { Task { await house.sync(with: store) } }) {
             Group {
                 if let choice = choosing ?? carded {
-                    HouseSpotSheet(room: choice.room, spot: choice.spot) { preview in
+                    HouseDecorSheet(room: choice.room, spot: choice.spot, pick: { choose(me, choice.room, $0) }) { preview in
                         refresh(trying: preview.map { (choice, $0) }, popping: choice.id)
                     }
-                    .id(choice.id)
+                    .id(choice.room.id)
                 }
             }
             .presentationDetents([.fraction(0.46)])
@@ -361,7 +366,10 @@ struct HouseHomeView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $adding) {
-            HouseRoomSheet { room in
+            HouseRoomSheet(move: {
+                adding = false
+                move()
+            }) { room in
                 adding = false
                 place(.new(room))
             }
@@ -427,15 +435,9 @@ struct HouseHomeView: View {
         }
         switch hit {
         case .spot(let kid, let roomID, let spotID):
+            // A marker, with the card up; without it, a thing in the room.
             guard let room = HouseCatalog.room(roomID), let spot = room.spot(spotID) else { return }
-            let choice = Choosing(room: room, spot: spot)
-            guard choice != choosing else { return }
-            // Whatever was being tried in the last spot and not bought goes back.
-            if choosing != nil { refresh() }
-            choosing = choice
-            carded = choice
-            stage.lift(kid, room.id, spot: spot.id)
-            MathAudio.shared.play("tap", volume: 0.4)
+            choose(kid, room, spot)
         case .cell(_, let cell):
             put(at: cell)
         case .room(let kid, let roomID):
@@ -456,6 +458,26 @@ struct HouseHomeView: View {
         case nil:
             break
         }
+    }
+
+    /// Bring the card up for a spot of a room of theirs, or change which spot it's for.
+    private func choose(_ kid: String, _ room: HouseRoom, _ spot: HouseSpot) {
+        let choice = Choosing(room: room, spot: spot)
+        guard choice != choosing else { return }
+        // Whatever was being tried in the last spot and not bought goes back.
+        if choosing != nil { refresh() }
+        choosing = choice
+        carded = choice
+        stage.lift(kid, room.id, spot: spot.id)
+        MathAudio.shared.play("tap", volume: 0.4)
+    }
+
+    /// Decorate: the card, for the room they're in, on the first spot that's still as it came.
+    private func decorate() {
+        guard case .room(let kid, let id) = focus, mine(focus), let room = HouseCatalog.room(id) else { return }
+        let spots = house.state.spots(of: room)
+        guard let spot = spots.first(where: { house.state.untouched($0, of: id) }) ?? spots.first else { return }
+        choose(kid, room, spot)
     }
 
     /// Whether this is the house that's open.
@@ -540,14 +562,20 @@ struct HouseHomeView: View {
 
     // MARK: Over the scene
 
-    /// What to do next, said over the scene: only while a room's being put somewhere, when a tap means something else.
+    /// Said over the top of the scene: what to do next while a room's being put somewhere, when a tap means
+    /// something else; or whose room they're looking round.
     private var prompt: String? {
         if let placing {
             let room = HouseCatalog.room(placing.room)?.name ?? "room"
             if case .new = placing { return "Tap where the \(room.lowercased()) goes" }
             return "Tap where to move the \(room.lowercased())"
         }
-        return moving ? "Tap the room to move" : nil
+        if moving { return "Tap the room to move" }
+        // Whose room this is, in a house that isn't theirs to change. (Their own is named on the button for changing it.)
+        if case .room(let kid, let id) = focus, !mine(focus), let room = HouseCatalog.room(id) {
+            return house.street.first { $0.kid == kid }.map { "\($0.name)'s \(room.name.lowercased())" } ?? room.name
+        }
+        return nil
     }
 
     private var overlay: some View {
@@ -582,34 +610,54 @@ struct HouseHomeView: View {
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(.white.opacity(0.7), in: .capsule)
-                    .foregroundStyle(Color(red: 0.35, green: 0.23, blue: 0.16))
+                    .foregroundStyle(Self.ink)
             }
             Spacer()
-            // Building's for when the house is looked at; in a room it's the room's spots.
-            if floors.count > 1, case .house = focus { floorPicker }
-            if mine(focus), case .house = focus { building }
+            // (Not under a card: it's glass, and they'd show through it.)
+            if !parents { building.opacity(covered ? 0 : 1) }
         }
         .padding(.bottom, 12)
+        // (All the way across, whatever's in it, so the floors are at the edge.)
+        .frame(maxWidth: .infinity)
+        // Which floor, up the right edge over the buttons: under where a room in focus sits, so not on top of it.
+        .overlay(alignment: .bottomTrailing) {
+            if floors.count > 1 { floorPicker.padding(.trailing, 16).padding(.bottom, 70).opacity(covered ? 0 : 1) }
+        }
+        .animation(.default, value: focus)
         .allowsHitTesting(true)
     }
 
-    /// A floor at a time, or all of it.
+    private static let ink = Color(red: 0.35, green: 0.23, blue: 0.16)
+
+    /// A card's up over the bottom of the screen.
+    private var covered: Bool { choosing != nil || adding }
+
+    /// A floor at a time, or all of it: one short column, the top floor at the top.
     private var floorPicker: some View {
-        HStack(spacing: 6) {
+        VStack(spacing: 2) {
             ForEach([nil] + floors.reversed().map(Optional.some), id: \.self) { (f: Int?) in
                 let on = floor == f
                 Button { setFloor(f); MathAudio.shared.play("tap", volume: 0.4) } label: {
-                    Text(f.map(HouseLayout.name(of:)) ?? "All")
+                    // "All", then "2", "G", "B": said in full to VoiceOver.
+                    Text(f.map { $0 < 0 ? "B" : $0 == 0 ? "G" : "\($0 + 1)" } ?? "All")
                         .font(.system(.footnote, design: .rounded).weight(.heavy))
-                        .padding(.horizontal, 11).padding(.vertical, 7)
-                        .foregroundStyle(on ? .white : .primary)
+                        .frame(width: 38, height: 36)
+                        .foregroundStyle(on ? .white : Self.ink)
+                        .background(on ? Self.ink : .clear, in: .rect(cornerRadius: 12))
+                        .contentShape(.rect)
                 }
-                .glassEffect(.regular.tint(on ? TuttlesLook.accent : .clear).interactive(), in: .capsule)
+                .buttonStyle(.plain)
+                .accessibilityLabel(f.map(HouseLayout.name(of:)) ?? "All floors")
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
+        .padding(4)
+        .glassEffect(.regular.tint(.white.opacity(0.6)), in: .rect(cornerRadius: 16))
     }
 
-    /// Add a room, or move one; or, while that's going on, stop.
+    /// Two buttons that keep their corners, so nothing moves under a thumb as the town's dragged. On the
+    /// left, Rooms, always. On the right, the one thing in red: decorating the room they're in, which comes
+    /// and goes with the room. While a room's being put somewhere, only the way to stop.
     private var building: some View {
         HStack(spacing: 10) {
             if placing != nil || moving {
@@ -617,27 +665,33 @@ struct HouseHomeView: View {
                     Label("Cancel", systemImage: "xmark")
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .padding(.horizontal, 18).padding(.vertical, 11)
+                        .foregroundStyle(Self.ink)
                 }
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
             } else {
-                Button { adding = true } label: {
-                    Label("Add a room", systemImage: "plus")
+                Button { adding = true; MathAudio.shared.play("tap", volume: 0.4) } label: {
+                    Label("Rooms", systemImage: "house.fill")
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .padding(.horizontal, 16).padding(.vertical, 11)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Self.ink)
                 }
-                .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
-                .disabled(house.state.rooms.count == HouseCatalog.rooms.count)
-                if house.state.rooms.count > 1 {
-                    Button { move() } label: {
-                        Label("Move a room", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                .glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
+                Spacer(minLength: 8)
+                if case .room(_, let id) = focus, mine(focus), let room = HouseCatalog.room(id) {
+                    Button { decorate() } label: {
+                        Label("Decorate \(room.name.lowercased())", systemImage: "paintbrush.fill")
                             .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .padding(.horizontal, 16).padding(.vertical, 11)
+                            .foregroundStyle(.white)
                     }
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
+                    .transition(.opacity)
                 }
             }
         }
+        .padding(.horizontal, 16)
     }
 
     // MARK: For the simulator
@@ -664,14 +718,73 @@ struct HouseHomeView: View {
     }
 }
 
-// MARK: - Choosing for a spot
+// MARK: - Choosing for a room's spots
 
-struct HouseSpotSheet: View {
+/// The card Decorate brings up: a tab for each spot of the room, and under
+/// them what can go in the one picked.
+struct HouseDecorSheet: View {
+    let room: HouseRoom
+    /// The spot it's for now.
+    let spot: HouseSpot
+    /// Another's been picked.
+    let pick: (HouseSpot) -> Void
+    /// Something's being tried in the spot (nil: it's as it really is).
+    let trying: (HouseItem?) -> Void
+    private let house = HouseStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(room.name).font(.system(.title3, design: .rounded).weight(.heavy))
+                Spacer()
+                HousePurse()
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 20)
+            .padding(.bottom, 10)
+            ScrollViewReader { reader in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(house.state.spots(of: room)) { tab($0).id($0.id) }
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .scrollIndicators(.hidden)
+                // The one it's for is in view, however it was picked: its tab, its marker, the thing itself.
+                .onChange(of: spot.id, initial: true) { withAnimation { reader.scrollTo(spot.id, anchor: .center) } }
+            }
+            .padding(.bottom, 10)
+            HouseSpotChoices(room: room, spot: spot, trying: trying).id(spot.id)
+        }
+    }
+
+    /// A spot: the picture its marker has, what it's called, and a plus while it's still as it came.
+    private func tab(_ s: HouseSpot) -> some View {
+        let on = s.id == spot.id, untouched = house.state.untouched(s, of: room.id)
+        return Button { pick(s) } label: {
+            HStack(spacing: 5) {
+                if s.symbol != "plus" { Image(systemName: s.symbol).font(.footnote) }
+                Text(s.title)
+                if untouched { Image(systemName: "plus").font(.caption.weight(.black)).foregroundStyle(on ? .white : TuttlesLook.accent) }
+            }
+            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .foregroundStyle(on ? .white : .primary)
+            .background(on ? TuttlesLook.accent : Color.primary.opacity(0.07), in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(untouched ? "\(s.title), nothing chosen" : s.title)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// What can go in one spot, tried in the room before it's paid for.
+struct HouseSpotChoices: View {
     let room: HouseRoom
     let spot: HouseSpot
     /// Something's being tried in the spot (nil: it's as it really is).
     let trying: (HouseItem?) -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var picked: HouseItem?
     @State private var refused = 0
     private let house = HouseStore.shared
@@ -679,36 +792,23 @@ struct HouseSpotSheet: View {
     private var placed: HouseItem? { house.state.item(in: spot, of: room.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(spot.title).font(.system(.title3, design: .rounded).weight(.heavy))
-                    Text(room.name).font(.footnote).foregroundStyle(.secondary)
-                }
-                Spacer()
-                HousePurse()
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 20)
-            .padding(.bottom, 10)
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(spot.items) { item in row(item) }
-                    if spot.starter == nil, placed != nil {
-                        Button("Take it out") {
-                            house.clear(spot, of: room.id)
-                            picked = nil
-                            trying(nil)
-                            MathAudio.shared.play("tap", volume: 0.5)
-                        }
-                        .font(.system(.subheadline, design: .rounded).weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 6)
+        ScrollView {
+            VStack(spacing: 8) {
+                ForEach(spot.items) { item in row(item) }
+                if spot.starter == nil, placed != nil {
+                    Button("Take it out") {
+                        house.clear(spot, of: room.id)
+                        picked = nil
+                        trying(nil)
+                        MathAudio.shared.play("tap", volume: 0.5)
                     }
+                    .font(.system(.subheadline, design: .rounded).weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 24)
             }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 24)
         }
         .onAppear { picked = placed }
     }
@@ -772,8 +872,11 @@ struct HouseSpotSheet: View {
 
 // MARK: - Buying a room
 
-/// The rooms still to have, and what each costs. Picking one goes on to where it goes.
+/// Rooms: the way to move one they have, then the rooms still to have and what each costs. Picking one
+/// goes on to where it goes.
 struct HouseRoomSheet: View {
+    /// They want to move a room: on to picking which.
+    let move: () -> Void
     let picked: (HouseRoom) -> Void
     @State private var refused = 0
     private let house = HouseStore.shared
@@ -781,7 +884,7 @@ struct HouseRoomSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Add a room").font(.system(.title3, design: .rounded).weight(.heavy))
+                Text("Rooms").font(.system(.title3, design: .rounded).weight(.heavy))
                 Spacer()
                 HousePurse()
             }
@@ -789,8 +892,36 @@ struct HouseRoomSheet: View {
             .padding(.top, 20)
             .padding(.bottom, 10)
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(HouseCatalog.rooms.filter { !house.state.has(room: $0.id) }) { room in row(room) }
+                VStack(alignment: .leading, spacing: 8) {
+                    // (One room has nowhere else to go.)
+                    if house.state.rooms.count > 1 {
+                        Button(action: move) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(TuttlesLook.accent)
+                                    .frame(width: 34)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Move a room").font(.system(.headline, design: .rounded).weight(.heavy))
+                                    Text("Pick one up and put it somewhere else. Free.").font(.footnote).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 6)
+                                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 11)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 18))
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    let left = HouseCatalog.rooms.filter { !house.state.has(room: $0.id) }
+                    Text(left.isEmpty ? "You have every room there is." : "Add a room")
+                        .font(.system(.footnote, design: .rounded).weight(.heavy))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.top, 8)
+                    ForEach(left) { room in row(room) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 24)

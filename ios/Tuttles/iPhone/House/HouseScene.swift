@@ -16,10 +16,12 @@ import UIKit
 // The camera never turns, and it's never locked: the town can be dragged
 // about and pinched closer or further from anywhere. How close it is says
 // what's shown. From far off the houses are shut; close to one, it opens;
-// closer still, the room in the middle of the screen is the one you're in,
-// with a marker on each of its spots. A tap on a house or a room only flies
-// there. Only a card over the bottom of the screen, or a room being put
-// somewhere, holds what's in focus while the town's moved.
+// closer still, the room in the middle of the screen is the one you're in.
+// A tap on a house or a room only flies there. A room's spots have markers
+// only while the card for changing them is up; without it the room's just
+// the room, and a tap on a thing in it is a tap on that thing's spot. Only
+// a card over the bottom of the screen, or a room being put somewhere,
+// holds what's in focus while the town's moved.
 
 /// One house to show: whose, and how it stands.
 struct HouseShown: Equatable {
@@ -63,7 +65,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     var changed: (() -> Void)?
     /// Waiting for a tap on the room to move: the house stays as it is meanwhile.
     var picking = false
-    /// Markers on the spots of the room in focus.
+    /// Their own house can be changed (it can't when it's the parents looking).
     private(set) var decorating = false
     /// The spot the card's for ("den.desk"): its marker stands out.
     private(set) var chosen: String?
@@ -481,8 +483,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                 thing.eulerAngles.y = anchor.ry
                 node.addChildNode(thing)
             }
-            if house.mine, decorating, inHere {
-                let empty = item == nil || (spot.starter != nil && item == spot.starter)
+            // A marker on each spot, while the card for changing them is up.
+            if house.mine, decorating, inHere, lifted {
+                let empty = house.state.untouched(spot, of: room.id)
                 let bubble = HouseProps.marker(spot.symbol, key == chosen ? .chosen : empty ? .empty : .filled)
                 bubble.name = "spot:\(house.kid):\(room.id):\(spot.id)"
                 bubble.position = SCNVector3(anchor.bubble.x, anchor.bubble.y, anchor.bubble.z)
@@ -939,7 +942,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     // MARK: Touch
 
-    /// What a tap landed on, nearest first: a spot's bubble before the room behind it.
+    /// What a tap landed on, nearest first: a spot's marker before the room behind it.
     func hit(_ point: CGPoint, in view: SCNView) -> Hit? {
         let results = view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.all.rawValue, .ignoreHiddenNodes: true])
         var found: [Hit] = []
@@ -968,6 +971,23 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             if spot == nil || far < spot!.far { spot = (.spot(parts[1], parts[2], parts[3]), far) }
         }
         if let spot { return spot.hit }
+        // No card up, and a thing of their own room in focus under the finger, with nothing of another room in front of it: its spot.
+        if !lifted, decorating, case .room(let kid, let id) = focus, houses.first(where: { $0.kid == kid })?.mine == true {
+            for result in results {
+                var node: SCNNode? = result.node, thing: String?, room: String?
+                while let n = node {
+                    if let name = n.name {
+                        if name.hasPrefix("thing:") { thing = String(name.dropFirst(6)) }
+                        if name.hasPrefix("room:") { room = name }
+                    }
+                    node = n.parent
+                }
+                // (The ground, the stairs, whoever lives there: not of a room.)
+                guard let room else { continue }
+                if room == "room:\(kid):\(id)", let thing, thing.hasPrefix("\(id).") { return .spot(kid, id, String(thing.dropFirst(id.count + 1))) }
+                break
+            }
+        }
         // A room of the open house; of any other, the house.
         return found.first { if case .room(let kid, _) = $0 { return open(kid) }; return false }
             ?? found.first { if case .house = $0 { return true }; return false }

@@ -92,6 +92,20 @@ struct HouseState: Codable, Equatable {
         return spot.starter
     }
 
+    /// The spots of a room that can be chosen for now: not one for what stands on something, with nothing there to stand on.
+    func spots(of room: HouseRoom) -> [HouseSpot] {
+        room.spots.filter { spot in
+            guard case .on(let base) = spot.place else { return true }
+            return room.spot(base).map { item(in: $0, of: room.id) != nil } ?? false
+        }
+    }
+
+    /// Whether a spot's as it came: nothing in it, or only what it started with.
+    func untouched(_ spot: HouseSpot, of room: String) -> Bool {
+        guard let item = item(in: spot, of: room) else { return true }
+        return item == spot.starter
+    }
+
     /// Spots with something in them, over all the spots of the rooms they have: how furnished it is.
     var filled: (Int, Int) {
         var have = 0, of = 0
