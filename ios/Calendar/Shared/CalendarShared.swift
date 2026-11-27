@@ -11,9 +11,15 @@ enum CalendarShared {
     static let defaults = UserDefaults(suiteName: group) ?? .standard
 
     private static let folder: URL = {
+        #if os(macOS)
+        // The Mac app is built here unsigned, with no group and no sandbox:
+        // its files sit under its own name in Application Support.
+        let folder = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason.calendar")
+        #else
         let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
             ?? URL.applicationSupportDirectory
         let folder = base.appending(path: "Calendar")
+        #endif
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }()

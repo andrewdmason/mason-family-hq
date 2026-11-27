@@ -547,9 +547,13 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   placed events are in another timezone (`calendar_events.location_time_zone`,
   filled by the website's drive-time pass from the geocoded coordinates) is a
   day away: its grid, cards, event sheet and time wheels are in that zone, under
-  a "Costa Rica time · 2h ahead" note. Empty days inside a trip count too. Once
-  the phone itself is in that zone there's nothing to convert and the note goes.
-  The rule is `CalendarRules.awayZones`; `--demo` has a trip 12 days out.
+  a "Costa Rica time · 2h ahead" note. Empty days inside a trip count too. The
+  day's own note is about home, not the phone: a day drawn in a clock that
+  isn't the family's at home (`CalendarRules.familyZone`, the website's
+  `FAMILY_TZ`) carries it, so on the trip its days still say "Costa Rica time"
+  and the days back home, drawn in home time, say nothing (`Board.zoneNote`).
+  The rule for which days are away is `CalendarRules.awayZones`; `--demo` has a
+  trip 12 days out.
 - The rules are the website's, ported in `Calendar/Shared/CalendarRules.swift`
   and `CalendarBoard.swift` (which day an event is on, which rows are one
   shared event, what's hidden, lanes, conflicts, duty chips, the calendar
@@ -602,7 +606,7 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   Settings › Hidden events lists them with a way back. Hides are the member's
   own rows in `calendar_event_hides`, written straight to Supabase (the one
   change that doesn't go through the website), kept in the local copy so the
-  widget leaves them out too. The website and the Mac don't read them yet.
+  widget leaves them out too. The Mac reads them too; the website doesn't yet.
 - Settings are this phone's: who shows and in what order, pins or blocks, the
   view it opens on, hidden events. Calendar setup stays on the website.
 - Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes
@@ -625,10 +629,121 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   calendar, deletes the original (`convert`), and the refused change is then
   made. An event that moves to another member's calendar keeps whoever had it
   as going.
-- `Calendar/Shared` has no UIKit, for the Mac app to come (`Calendar/Mac`).
+- `Calendar/Shared` has no UIKit: the Mac app (`Calendar/Mac`, below) is built
+  on it too, as is the look in `iPhone/CalendarStyle.swift`.
 - `--demo` runs on a made-up family week with no sign-in, for the simulator;
   `--me <first name>` chooses whose phone it is, `--view <day|schedule>` the
   view, `--widget` shows the widget's view at its size, and `--website <url>` points changes at another server.
+
+## Calendar (Mac)
+
+The family calendar at a desk (scheme `CalendarMac`, `Calendar/Mac`): a window
+and a menubar applet, one app, on the phone's `Calendar/Shared` (the same local
+copy, rules and changes through the website). It's **Family Calendar** on disk,
+so it doesn't sit beside Apple's Calendar under the same name; the bundle id
+and URL scheme are the phone's, `io.mason.calendar`. Built for Andrew's Mac for
+now, unsigned like Todos, though nothing in it assumes whose Mac it is: "me"
+is whoever signs in.
+
+- **One app, two faces.** ⌘Q (or Quit from the Dock) takes the window and the
+  Dock icon away and leaves the menubar item; opening the app again brings the
+  window back at once. *Quit Completely* (⌥⌘Q, or the applet's gear) stops
+  both. It starts at login as the menubar item alone, once it's in
+  Applications (`LoginItem`; Settings has the switch). Logging out or shutting
+  down quits it for real. The window and the applet share one `CalendarStore`,
+  so a change in one shows in the other at once.
+- **The applet** (`AppletController.swift`, `Applet.swift`) drops from the
+  menubar icon, a calendar leaf with today's date, on a click or ⌃⌥Space from
+  any app (`Hotkey`, in `CalendarMacApp.swift`). It's a panel that takes the
+  keyboard without bringing the app forward, so the window doesn't jump in
+  front of what you were doing. Escape, or a click anywhere else, puts it away.
+  - It opens with the cursor in **a line to type a new event in**: "Dinner
+    with Jenny at Zuni sat 7-9pm", "Dentist for Oscar tue 3:30pm", "Piano
+    every tuesday 4pm until dec 15". The line is read on the Mac as it's typed
+    (`Shared/QuickEntry.swift`, whose comment lists what it understands) and
+    the event takes shape under it; Return adds it, *Details…* opens it as a
+    card first. What it doesn't understand stays in the title.
+  - Under that, **this week**, to pick a day from; the month's name drops the
+    whole month open, as on the phone. ← and → move a day while nothing's
+    typed (after that they're the line's); ⌘[ and ⌘] move one at any time,
+    and ⌘T is today. With a card open those keys are the card's.
+  - Then **the day as a list** (`Shared/Agenda.swift`). The left column holds
+    only the signed-in member's own times: their events (on their calendar, or
+    they're going or driving) are full rows, with when to leave if they're
+    driving. Everyone else's are one line each in that person's colour, the
+    time in brackets after the words and their faces down the right; the same
+    thing at the same time for several people (two kids at one school) is one
+    line.
+  - With no day picked it's **today until nothing is left today**: anything
+    still to come holds it, the family's included; all-day events don't. Then
+    it's tomorrow, in a tinted panel with hollow bars so it reads as not yet.
+  - A click on an event opens **its card beside the applet**, the whole of
+    it, to change in place.
+  - **The time between** (an experiment, on by default; *Show Time Between
+    Events* in the applet's gear switches back to the plain list). The day is
+    the member's stops and the gaps between them (`Shared/Rundown.swift`,
+    whose comment has the rules). A gap is one grey line: a clock, how long
+    it is, and who in the family has what on in it, "1h 35m (J: Surfing,
+    S+O: School)"; a click opens that into the events themselves, each a
+    line to open, and another closes it. The day's two ends read "Before" and
+    "Later". An event the member only drives for isn't a stop; its drop-off
+    and pick-up are, and the event sits in the gap between them. Where the
+    member is now is tinted olive (not the now line's red, which read as an
+    error in a list): a stop shows how far through it they are and how long
+    is left, a gap says "Free for 1h 20m", and after the last stop it's "Done
+    for today". There's no time down the left of a gap: that column is for
+    events. What's been today folds into an *Earlier* line, so the list
+    starts at now.
+- **The window** (`WindowRoot.swift`, `WindowGrid.swift`) opens on **Week**;
+  **Day** is the other view. Both are read from the signed-in member's side:
+  only their events are cards.
+  - In Week the rest of the family are thin lines down the right of each day,
+    a lane each: solid for their own event, hollow when they're going along to
+    someone else's. An event that's already one of the member's own cards
+    (theirs that someone's going to, or someone's that they are) has no line:
+    the faces on the card say who. The pointer over a line says what it is; a
+    click opens it.
+  - In Day they're the website's Day view: a pin each with a face at each
+    start, and the event's name beside the pins where there's room.
+  - **Dragging**: across empty grid draws a new event (a double-click makes an
+    hour); a card moves to another time or day; its lower edge changes when it
+    ends. A repeating event asks first: this one or all of them. Events that
+    can't be edited here (TeamSnap's, a feed's, drives) don't move.
+  - The month's name in the toolbar opens the month to jump by. T is today,
+    ← and → move a week or a day, W and D switch views, ⌘N is a new event.
+  - A day drawn in a clock that isn't the family's at home says so beside its
+    date ("Costa Rica" in Week, "Costa Rica time · 2h ahead" in Day). A day in
+    home time says nothing, wherever the Mac is (`Board.zoneNote`, which the
+    phone reads too; home is `CalendarRules.familyZone`).
+- **The event card** (`EventCardMac.swift`) is the phone's, row for row, in a
+  popover off whatever was clicked (or beside the applet): a draft until its ✓
+  (⌘Return; Return in a new event's title). What it asks (discard, this one or
+  all, delete) it asks in the card itself, so it's the same in both places.
+- A right-click on an event hides it from your own view, as a long-press does
+  on the phone; Settings lists what's hidden. Settings are this Mac's: who
+  shows and in what order, hidden events, starting at login.
+- The look is the phone's: flat warm paper for the calendar, Liquid Glass for
+  what floats over it (the toolbar, the applet, the card, the peek).
+- Not here yet: search, weather, alerts before events, a Schedule list in the
+  window (the applet is one), and the team's availability roster.
+- `scripts/install-calendar-mac.sh` builds it and puts it in Applications.
+  CI builds it (`.github/workflows/ios.yml`); its rules are tested with the
+  phone's (`Calendar/Tests/QuickEntryTests.swift`).
+- For trying it out: `--demo` runs on the made-up family week with no sign-in
+  (`--me andrew` for whose Mac), `--view <week|day>`, `--applet` opens the
+  applet (`--type <words>` with the line typed, `--month` with the month
+  open), `--no-window`, `--open <title>` opens an event's card, `--new` a new
+  one, `--settings`, `--dark`. In a debug build, `--now 14:45` sets the time
+  of day, and `--snapshot <file.png>` writes a picture of the app's own
+  windows and quits (it works with the screen locked; with someone at the Mac
+  it opens over their work and takes their keyboard, so not then), after playing
+  `--events "click 510,362; type Dentist tomorrow 3pm; key return"` if given:
+  clicks, double-clicks, drags, typing and keys, fed to the window from inside
+  the app (`Snapshot.swift`). `--backdrop` puts a busy picture behind, to see
+  the glass against. `--render-list <file.png>` draws just the applet's list
+  into a picture and quits, opening nothing (so it's fine with someone at the
+  Mac): `--now`, `--day 1` for tomorrow, `--plain` for the plain list,
+  `--earlier` with what's been unfolded.
 
 ## Adding an app
 
@@ -669,3 +784,5 @@ CI runs the same for every app on every change under `ios/`
   automatic) and installs on Andrew's iPhone over the cable or Wi-Fi.
 - `scripts/release.sh [App]`: uploads a build to TestFlight.
 - `scripts/release-mac.sh`: publishes Tuttles for the Mac (see Tuttles (Mac)).
+- `scripts/install-calendar-mac.sh`: builds Calendar for the Mac and puts it in
+  Applications (see Calendar (Mac)).

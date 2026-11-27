@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs><clipPath id="leaf"><rect x="212" y="236" width="600" height="584" rx="136"/></clipPath></defs>
+  <g transform="translate(512 512) scale(1.22) translate(-512 -498)">
+  <rect x="212" y="236" width="600" height="584" rx="136" fill="#fbf6ea"/>
+  <rect x="212" y="236" width="600" height="156" fill="#55622c" clip-path="url(#leaf)"/>
+  </g>
+</svg>

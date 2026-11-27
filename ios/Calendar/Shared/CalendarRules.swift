@@ -325,10 +325,18 @@ enum CalendarRules {
         return nil
     }
 
+    /// The clock the family keeps at home: the website's FAMILY_TZ
+    /// (src/lib/calendar/drive-time.ts). Days in it go unmarked.
+    static let familyZone = TimeZone(identifier: "America/Los_Angeles")!
+
+    /// "Costa Rica", from "America/Costa_Rica".
+    static func zonePlace(_ zone: TimeZone) -> String {
+        zone.identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") } ?? zone.identifier
+    }
+
     /// "Costa Rica time · 2h ahead": what a day away says about its clock.
     static func zoneNote(_ zone: TimeZone, home: TimeZone, at date: Date) -> String {
-        let place = zone.identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") }
-            ?? zone.identifier
+        let place = zonePlace(zone)
         let minutes = (zone.secondsFromGMT(for: date) - home.secondsFromGMT(for: date)) / 60
         guard minutes != 0 else { return "\(place) time" }
         let (h, m) = (abs(minutes) / 60, abs(minutes) % 60)

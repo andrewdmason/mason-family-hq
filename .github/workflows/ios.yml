@@ -3,7 +3,7 @@ name: iOS apps
 # Builds the family iOS apps and runs their tests on a simulator whenever they
 # change. Agents working in the cloud have no Xcode, so this is where their
 # Swift is first compiled. Add each new app's scheme to the matrix. The Mac
-# version of Tuttles is built as well (no tests of its own).
+# versions of Tuttles and Calendar are built as well (no tests of their own).
 on:
   pull_request:
     paths: ["ios/**", ".github/workflows/ios.yml"]
@@ -33,12 +33,15 @@ jobs:
             -destination "id=$SIM" -derivedDataPath build/dd \
             CODE_SIGNING_ALLOWED=NO test
 
-  # Tuttles on the Mac shares most of its code with the iPhone app
-  # (ios/Tuttles/Shared), so a change made for the phone is compiled for the
-  # Mac here too.
+  # Tuttles and Calendar on the Mac share most of their code with the iPhone
+  # apps (ios/Tuttles/Shared, ios/Calendar/Shared), so a change made for the
+  # phone is compiled for the Mac here too.
   mac:
     runs-on: macos-26
     timeout-minutes: 30
+    strategy:
+      matrix:
+        app: [TuttlesMac, CalendarMac]
     defaults:
       run:
         working-directory: ios
@@ -49,6 +52,6 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          xcodebuild -project MasonApps.xcodeproj -scheme TuttlesMac \
+          xcodebuild -project MasonApps.xcodeproj -scheme "${{ matrix.app }}" \
             -destination "platform=macOS" -derivedDataPath build/dd \
             CODE_SIGNING_ALLOWED=NO build
