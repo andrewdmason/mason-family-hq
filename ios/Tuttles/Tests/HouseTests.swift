@@ -439,6 +439,11 @@ final class HouseTests: XCTestCase {
         // Flown to, it opens like any other.
         stage.fly(to: .house(HouseTown.parentsID), animated: false)
         XCTAssertEqual(stage.focus, .house(HouseTown.parentsID))
+        // A floor picked with the whole house in view leaves it open, on that floor.
+        stage.setFloor(-1)
+        XCTAssertEqual(stage.focus, .house(HouseTown.parentsID))
+        XCTAssertEqual(stage.floor, -1)
+        stage.setFloor(nil)
         // In its basement the town's put away, and it's back out on the street.
         let land = stage.scene.rootNode.childNode(withName: "land", recursively: false)
         XCTAssertEqual(land?.isHidden, false)

@@ -705,7 +705,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     }
 
     /// The corners of something to look at, in the world.
-    private func corners(_ focus: Focus) -> [SIMD3<Float>] {
+    /// (`all`: of a house, every floor of it, whichever is picked.)
+    private func corners(_ focus: Focus, all: Bool = false) -> [SIMD3<Float>] {
         let S = HouseCatalog.side, H = HouseCatalog.height
         func box(_ house: HouseShown, _ cell: [Int], pad: Float) -> [SIMD3<Float>] {
             guard let origin = nodes[house.kid]?.simdPosition else { return [] }
@@ -717,7 +718,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         func whole(_ house: HouseShown, sign: Bool) -> [SIMD3<Float>] {
             var cells = house.state.rooms.map { house.state.cell(of: $0) }
             if house.mine, let placing, focus == .house(house.kid) { cells += placing.cells }
-            if !sign { cells = cells.filter { presence($0, of: house) > 0 } }
+            if !sign, !all { cells = cells.filter { presence($0, of: house) > 0 } }
             var out = cells.flatMap { box(house, $0, pad: 0.2) }
             // The stairs stand out from it.
             if let origin = nodes[house.kid]?.simdPosition {
@@ -891,7 +892,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
         guard let (house, origin, gap) = best else { return .street }
         let wasOpen = open(house.kid), room = roomScale
-        let fit = framing(corners(.house(house.kid)))?.scale ?? room
+        // (All of the house, not only the floor picked: picking a floor of a big house mustn't shut it.)
+        let fit = framing(corners(.house(house.kid), all: true))?.scale ?? room
         guard eye.scale <= max(fit * (wasOpen ? 1.7 : 1.4), room * (wasOpen ? 2 : 1.7)), gap <= S * (wasOpen ? 2 : 1) else { return .street }
         // Close enough for a room to be most of the screen: the one in the middle of it.
         var inRoom: String?

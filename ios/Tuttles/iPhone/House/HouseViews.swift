@@ -585,7 +585,9 @@ struct HouseHomeView: View {
         // Whose room this is, in a house that isn't theirs to change. (Their own is named on the button for changing it.)
         if case .room(let kid, let id) = focus, !mine(focus), let room = HouseCatalog.room(id) {
             let whose = kid == HouseTown.parentsID ? HouseTown.parents.name : house.street.first { $0.kid == kid }?.name
-            return whose.map { "\($0)'s \(room.name.lowercased())" } ?? room.name
+            // ("The Basement" is "Mom & Dad's basement".)
+            let name = room.name.lowercased(), plain = name.hasPrefix("the ") ? String(name.dropFirst(4)) : name
+            return whose.map { "\($0)'s \(plain)" } ?? room.name
         }
         return nil
     }
