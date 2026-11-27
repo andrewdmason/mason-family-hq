@@ -23,3 +23,14 @@ place:
 
   furniture/    Furniture Kit: the rest of what's here, some eighty pieces
   pets/         Cube Pets (1.0): the twenty-four animals and their swatch sheet
+
+The house's rooms (Tuttles/iPhone/House) also use, all public domain
+(CC0 1.0) too:
+
+  house3d/      Ultimate House Interior Pack (June 2020) by Quaternius
+                (quaternius.com): 123 pieces, converted from the pack's .obj
+                files by prototypes/tuttles-house-3d/obj2glb.py. Fetched from
+                the author's copy at opengameart.org/node/126986. Used for
+                inside doors and for the pieces HouseKit.better names.
+  ../house3d/   Floor, wood, plaster, cloth, stone and grass textures from
+                Poly Haven (polyhaven.com), resized to 1024 pixels.

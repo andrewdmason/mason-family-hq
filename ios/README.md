@@ -256,33 +256,56 @@ in each room fixed spots, each with its own things to choose between.
 - Rooms, spots, things and prices are all in `HouseCatalog.swift`; the prices
   are checked against a day's pay in `Tests/HouseTests.swift`.
 - Each kid puts each room where they like and can move it later, free
-  (`HouseLayout.swift`): on a 5 by 5 lot, on the ground or on another room,
-  touching the rest; nothing on the garden or observatory, and the basement
-  only under a ground-floor room. Houses from before this are laid out again
-  so they hold together.
-- It's SceneKit from one fixed corner (`HouseScene.swift`). A room is a floor
-  and two walls. A wall with a room behind it is down to the knee with a gap,
-  except from inside that room, where it's up with a doorway through it (and
-  what hangs on it hangs over the doorway). Each floor over the ground has a
-  flight of stairs up to it (`HouseLayout.stairs`): outside, since a room's
-  floor is all spots, beside a room of that floor where nothing's built, with
-  a door at the top when the house is shut. From far off each house is shut, with
-  front walls, windows, a door and roofs. Nothing's a screen to go into and
-  back out of: the town is dragged about and pinched closer from anywhere
-  (`HouseStage.Roam`), and how close the camera is says what's shown
-  (`HouseStage.seen`). Close to a house it opens; closer still the room in
-  the middle of the screen is the one you're in, its walls up, and whatever's
-  in front of it or over it a ghost of itself. A tap on a house or a room
-  only flies there.
+  (`HouseLayout.swift`). Every kind of room is its own size, a rectangle of
+  square metres on a 20 metre lot; it goes anywhere, turned any of four ways,
+  upstairs or down, so long as the house holds together (`HouseLayout.problem`):
+  upstairs a room under all of it (not the garden or the observatory, which
+  have no roof), the basement under the hall, the front door opening outdoors,
+  and a door into every room. Doors aren't placed: one's made wherever two
+  rooms share a metre of wall both keep clear (a room's things are against
+  its north and west walls as it's drawn, so its east and south sides are
+  clear), and between two open rooms it's an arch. Every house has a hall
+  with the front door and the stairs in it, and a landing over it once
+  there's a room upstairs; neither is bought (`HouseCatalog.fixtures`).
+  Where rooms stand is kept as `HouseState.plots` ([x, z, floor, turn]); a
+  house from before rooms had sizes (kept as `cells`, still written for older
+  builds to read) is laid out again so it holds together
+  (`HouseLayout.settle`).
+- The house is drawn from a plan worked out from where its rooms are
+  (`HousePlan.swift`): a map a floor, a letter a square metre, with a wall
+  wherever two rooms meet or a room meets the open, and doors, arches and
+  windows in them. `HouseBuilt.swift` builds one house on its lot from that:
+  floors, rooms and what's in their spots (the catalogue's places, written
+  for a room four metres square, are spread to fill each room's own size),
+  stairs up in the hall and down under them to a basement, walls, and for
+  when it's shut a roof over each part of it in the shape and colour chosen.
+- It's SceneKit in perspective, from a camera that goes round
+  (`HouseScene.swift`), lit the physical way (`HouseLook.swift`):
+  photographed floors, wood and plaster (Poly Haven's) in the catalogue's
+  colours, soft shadows, and the sun going round with the camera so the
+  walls at the back are the lit ones. Furniture is Kenney's kit with
+  Quaternius's house pack standing in for the pieces it has a better one of
+  (`HouseKit.better` in `HouseThings.swift`); either way a room's wood and
+  cloth are its own colours. Nothing's a screen to go into and back out of:
+  the town is dragged about, pinched closer and turned with two fingers from
+  anywhere (a button at the top goes round to the next corner), and how
+  close the camera is says what's shown (`HouseStage.settle`). From far off
+  each house is shut, with its roof on. Close to one it opens on a floor:
+  the walls that would be in the way come down to a stub (the outside ones
+  on the camera's side, and those between rooms), with the doors left
+  standing. Closer still the room in the middle of the screen is the one
+  you're in, and it keeps the walls at its back, so what hangs on them
+  shows. A tap on a house or a room only flies there.
   At the bottom of the screen are two buttons that keep their corners
   wherever the camera is. On the left, always, Rooms (`HouseRoomSheet`): a
   card to move a room from or add one, which from anywhere flies to the
   kid's own house. On the right, while a room of theirs is in focus,
   "Decorate kitchen", the only thing in red. The floors of the open house
-  are a short column up the right edge (All, 2, G, B). In a room of the
-  other house, whose room it is is said at the top. Decorate brings a card
-  up over the bottom of the screen (`HouseDecorSheet`) and holds the room in
-  focus: a tab for each
+  are a short column up the right edge (2, G, B): the one picked is the one
+  shown, with those under it shut and lidded and those over it gone. In a
+  room of the other house, whose room it is is said at the top. Decorate
+  brings a card up over the bottom of the screen (`HouseDecorSheet`) and
+  holds the room in focus, seen from where its things face: a tab for each
   of the room's spots, on the first that's still as it came, and under them
   what can go there. Only while the card's up does each spot have a marker
   in the room, which says what goes there (`HouseSpot.symbol`): a white tag
@@ -290,14 +313,17 @@ in each room fixed spots, each with its own things to choose between.
   something has. A tab or a marker changes what the card's for, and a tap
   anywhere else puts it away. With no card up, a tap on a thing in their
   room brings it up on that thing's spot.
-  A floor picked is the one you're on: those over it go and those
-  under it fade.
+  A room being added or moved is in hand (`HouseStage.hold`): it shows
+  where it would stand, with the two walls its things are against, green
+  where it can go and red where it can't (and why is said at the top), and
+  goes with a finger a metre at a time. The bar then has Cancel, a button
+  to turn it a quarter, and in red "Put it here".
 - The houses stand in a neighbourhood after the family's own in Berkeley
   (`HouseTown.swift`): Avalon Ave winding from the turning circle at its west
   end out to Oak Knoll, inside four straight streets (Kelsey, Garber, Oak
   Knoll, Russell), their names painted on them, with trees and hills past
   them. Mom & Dad's house is at the top of the turning circle up a drive:
-  ready-made, every room, solar panels, both of them on the step, and anyone
+  ready-made, every room, both of them on the step, and anyone
   can look round it but nobody builds it (`HouseTown.parents`; the stage adds
   it to whatever it's shown). Oscar's lot is west of the circle and
   Sebastian's two doors east of Mom & Dad's, by name (`HouseTown.lots`);
