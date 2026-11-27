@@ -123,7 +123,7 @@ struct RundownRows: View {
             }
         case .gap:
             let lead: String? = if isNow {
-                part.end.map { "Free for \(Rundown.length($0.timeIntervalSince(now)))" }
+                part.end.map { "\(Rundown.length($0.timeIntervalSince(now))) free" }
                     ?? (anyStops ? "Done for today" : "Nothing of yours today")
             } else if let length = part.length {
                 Rundown.length(length)

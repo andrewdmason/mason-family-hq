@@ -629,16 +629,17 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   between is one grey line, a clock and its length and who in the family has
   what on in it, "1h 35m (J: Surfing, S+O: School)", that a tap opens into
   those events. Today's is tinted where the member is now, with how long is
-  left of an event or how long they're free, and what's been folds into an
+  left of an event or how long they're free ("1h 4m free"), and what's been folds into an
   *Earlier* line. A day with nothing of the member's lists the family's
   events as they are. Off, Schedule lists every event as it used to.
 - A large home screen widget (`Calendar/Widgets`, target `CalendarWidgets`)
   shows the same list from now on (tomorrow's once nothing is left today),
   as many lines as fit. A widget can't be tapped open, so the family's events
   get lines of their own when there's room and are named on the gap's line
-  when there isn't; where the member is now reads "Free until 1:35pm" and a
-  bar that fills by itself, since a widget is redrawn every quarter hour and
-  when one of the member's events starts or ends, not every minute. With the
+  when there isn't; where the member is now reads "1h 4m free", counted to
+  the minute because the widget's timeline has an entry for each of the next
+  120 minutes (the calendar laid out once, each minute read from that), and
+  an event in progress has a bar that fills by itself. With the
   setting off it's the Day view in small: eight hours from an hour before now,
   the phone's own member in the wide column and the family as pin lines.
   Tapping an event opens it in the app (`io.mason.calendar://event/<id>`). Its
@@ -717,7 +718,7 @@ is whoever signs in.
     and pick-up are, and the event sits in the gap between them. Where the
     member is now is tinted olive (not the now line's red, which read as an
     error in a list): a stop shows how far through it they are and how long
-    is left, a gap says "Free for 1h 20m", and after the last stop it's "Done
+    is left, a gap says "1h 20m free", and after the last stop it's "Done
     for today". There's no time down the left of a gap: that column is for
     events. What's been today folds into an *Earlier* line, so the list
     starts at now.

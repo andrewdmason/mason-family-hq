@@ -58,6 +58,8 @@ struct Rundown: Sendable {
     /// The day, its all-day events, and whether it's tomorrow shown early.
     var agenda: Agenda
     var parts: [Part]
+    /// The moment it was built for: what "now" and "how long is left" are counted from.
+    var now = Date()
 
     /// Nothing timed at all.
     var isEmpty: Bool { parts.allSatisfy { $0.kind == .gap && $0.others.isEmpty } }
@@ -158,7 +160,7 @@ struct Rundown: Sendable {
             guard part.kind == .gap, part.others.isEmpty else { return false }
             return part.phase == .over || (part.length == nil && part.phase != .now)
         }
-        return Rundown(agenda: agenda, parts: parts)
+        return Rundown(agenda: agenda, parts: parts, now: now)
     }
 
     /// "45m", "2h", "1h 5m": a length of time, to the minute above.
