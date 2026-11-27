@@ -2,18 +2,20 @@ import SceneKit
 import SwiftUI
 
 // The house's screens. One scene (HouseScene.swift) under everything: the
-// street with both houses on it, dragged about and pinched closer from
-// anywhere. Close to a house it opens, and closer still the room in the
-// middle is the one they're in; a tap on a house or a room flies there, and
-// the map button flies back out to the street. Their own house can be
+// neighbourhood (HouseTown.swift) with the houses in it, dragged about and
+// pinched closer from anywhere. It opens on the family's end of the street.
+// Close to a house it opens, and closer still the room in the middle is the
+// one they're in; a tap on a house or a room flies there, and the map button
+// pulls back to the whole neighbourhood, and from there goes back to the
+// family's end. Their own house can be
 // changed: the room they're in has a marker on each spot, and tapping one
 // brings up a card of what can go there, tried in the room before it's paid
 // for. Another marker changes what the card's for; a tap anywhere else puts
 // it away. In the house they add rooms, putting each where they like, and
 // move them about (HouseLayout.swift); a house of more than one floor can be
-// looked at a floor at a time. The other house can be looked round and not
-// touched. The parents see the street the same way, and what each purse has
-// had paid in.
+// looked at a floor at a time. The other house, and Mom & Dad's, can be
+// looked round and not touched. The parents see the street the same way, and
+// what each purse has had paid in.
 
 /// Coins and gems, wherever they're shown: a pill each, or, in a bar, the
 /// two together with the bar's own glass round them.
@@ -222,8 +224,8 @@ struct HouseHomeView: View {
     @State private var stage = HouseStage()
     /// What the camera's on, as the stage has it: it changes as the town's moved.
     @State private var focus = HouseStage.Focus.street
-    /// The town's not as it's first shown: there's a way back to that.
-    @State private var moved = false
+    /// Pulled right back to the whole neighbourhood: the map button goes home from there.
+    @State private var wide = false
     @State private var ready = false
     /// The spot being chosen for, and the room to buy.
     @State private var choosing: Choosing?
@@ -280,13 +282,8 @@ struct HouseHomeView: View {
         // game there's no bar, and they're in a row of their own with the X: `overlay`.)
         .toolbar {
             if close == nil {
-                if moved || focus != .street {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: street) { Image(systemName: "map.fill") }
-                            .accessibilityLabel("The whole street")
-                    }
-                }
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+                ToolbarItem(placement: .topBarLeading) { mapButton }
                 if parents {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Purses", systemImage: "circle.fill") { showingPurses = true }
@@ -301,7 +298,7 @@ struct HouseHomeView: View {
             guard !ready else { return }
             stage.changed = {
                 focus = stage.focus
-                moved = stage.moved
+                wide = stage.wide
                 floor = stage.floor
             }
             store.openHouse()
@@ -451,7 +448,7 @@ struct HouseHomeView: View {
         case .house(let kid):
             guard placing == nil, !moving, !opened(kid) else { return }
             // A house of one room: straight into it.
-            let rooms = (kid == me && !parents ? house.state : house.street.first { $0.kid == kid }?.state)?.rooms ?? []
+            let rooms = state(of: kid)?.rooms ?? []
             go(rooms.count == 1 ? .room(kid, rooms[0]) : .house(kid))
         case nil:
             break
@@ -526,16 +523,30 @@ struct HouseHomeView: View {
     /// The floors of the open house, lowest first, and those a room being placed could go on.
     private var floors: [Int] {
         guard let kid = openHouse else { return [] }
-        let state = kid == me && !parents ? house.state : house.street.first { $0.kid == kid }?.state
-        var out = Set(state?.floors ?? [])
+        var out = Set(state(of: kid)?.floors ?? [])
         if placing != nil, kid == me, let cells = stage.placing?.cells { out.formUnion(cells.map { $0[1] }) }
         return out.sorted()
     }
 
-    /// Back out to the whole street, as it's first shown.
-    private func street() {
+    /// How a house stands: their own as the phone has it, anyone else's (Mom & Dad's too) as it's shown.
+    private func state(of kid: String) -> HouseState? {
+        kid == me && !parents ? house.state : stage.state(of: kid)
+    }
+
+    /// The map button: out to the whole neighbourhood; from there, back to the family's end of the street, as it's first shown.
+    private func map() {
         if placing != nil || moving { stopPlacing() }
-        go(.street)
+        if wide {
+            go(.street)
+        } else {
+            stage.flyToTown()
+            MathAudio.shared.play("tap", volume: 0.4)
+        }
+    }
+
+    private var mapButton: some View {
+        Button(action: map) { Image(systemName: wide ? "house.fill" : "map.fill") }
+            .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
     }
 
     // MARK: Over the scene
@@ -561,16 +572,14 @@ struct HouseHomeView: View {
                     }
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Close")
-                    // Nothing to go back from: just a way out to the whole street, once they've moved off it.
-                    if moved || focus != .street {
-                        Button(action: street) {
-                            Image(systemName: "map.fill")
-                                .font(.system(.headline, design: .rounded).weight(.heavy))
-                                .frame(width: 42, height: 42)
-                        }
-                        .glassEffect(.regular.interactive(), in: .circle)
-                        .accessibilityLabel("The whole street")
+                    // Nothing to go back from: the map button, out to the whole neighbourhood and home again.
+                    Button(action: map) {
+                        Image(systemName: wide ? "house.fill" : "map.fill")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .frame(width: 42, height: 42)
                     }
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
                     Spacer()
                     HousePurse().opacity(choosing == nil ? 1 : 0)
                 }

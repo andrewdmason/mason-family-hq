@@ -266,18 +266,33 @@ in each room fixed spots, each with its own things to choose between.
   (`HouseStage.seen`). Close to a house it opens; closer still the room in
   the middle of the screen is the one you're in, its walls up, a marker on
   each of its spots, and whatever's in front of it or over it a ghost of
-  itself. A tap on a house or a room only flies there, and the map button
-  flies back out to the whole street. A marker says what goes in its spot
+  itself. A tap on a house or a room only flies there. A marker says what goes in its spot
   (`HouseSpot.symbol`): a white tag with a picture and a "+" where nothing's
   been chosen, a small dot where something has. Tapping one brings a card up
   over the bottom of the screen and holds that room in focus; another marker
   changes what the card's for, and a tap anywhere else puts it away.
   A floor picked is the one you're on: those over it go and those
-  under it fade. The houses stand
-  in a town (`HouseLand.swift`): one ground picture of a block and its roads,
-  repeated; each house on a block of its own with a fence and trees at the
-  back, the street going up the screen, trees on the blocks between. The
-  town drags as far as the trees go and pinches in as far as a bit of a room.
+  under it fade.
+- The houses stand in a neighbourhood after the family's own in Berkeley
+  (`HouseTown.swift`): Avalon Ave winding from the turning circle at its west
+  end out to Oak Knoll, inside four straight streets (Kelsey, Garber, Oak
+  Knoll, Russell), their names painted on them, with trees and hills past
+  them. Mom & Dad's house is at the top of the turning circle up a drive:
+  ready-made, every room, solar panels, both of them on the step, and anyone
+  can look round it but nobody builds it (`HouseTown.parents`; the stage adds
+  it to whatever it's shown). Oscar's lot is west of the circle and
+  Sebastian's two doors east of Mom & Dad's, by name (`HouseTown.lots`);
+  anyone else (the demo, a parent as themselves) gets the first lot free.
+  Five neighbours' houses (shut, nobody's), the big place with the pool and
+  Monkey Island Park fill it out, and three lots are bare grass, for buying
+  a second house on later (not built yet). The camera looks from the
+  south-east, so front doors are on the south: houses north of Avalon open
+  onto it, those south of it onto Russell. Each house has its fence and
+  trees at the back (`HouseLand.swift`) and a path from its door to the
+  street. It opens on the family's end (the three houses framed together);
+  the map button pulls back to the whole neighbourhood and, from there, goes
+  home again. The town drags as far as its edges and pinches in as far as a
+  bit of a room.
   While the house is up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
