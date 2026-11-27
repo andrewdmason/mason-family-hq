@@ -58,8 +58,9 @@ private struct TodayProvider: TimelineProvider {
     }
 
     /// What the widget shows from `now` on: the copy the app last saved, at
-    /// each quarter hour for the next two, so the now line and the hours in
-    /// view move with nothing awake.
+    /// each minute for the next two hours, so "1h 4m free", the now line and
+    /// the hours in view keep time with nothing awake. The calendar is laid
+    /// out once and each minute read from that.
     private static func entries(from now: Date) -> [TodayEntry] {
         guard let who = CalendarShared.who,
               let data = try? Data(contentsOf: CalendarShared.copy(who.user)),
@@ -69,15 +70,14 @@ private struct TodayProvider: TimelineProvider {
         for member in snapshot.members {
             if let photo = try? Data(contentsOf: CalendarShared.photo(member.email)) { photos[member.email] = photo }
         }
-        let quarter: TimeInterval = 15 * 60
-        let first = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / quarter).rounded(.down) * quarter + quarter)
-        var times = [now] + (0..<8).map { first.addingTimeInterval(Double($0) * quarter) }
-        // The list reads differently the moment one of the member's events
-        // starts or ends: redraw then too, not at the next quarter hour.
-        let last = times.last ?? now
-        times += TodayWidgetModel(snapshot: snapshot, me: who.email, photos: [:], now: now).turns(until: last)
+        let board = Board.build(snapshot, me: who.email)
+        let minute: TimeInterval = 60
+        let first = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / minute).rounded(.down) * minute + minute)
+        var times = [now] + (0..<120).map { first.addingTimeInterval(Double($0) * minute) }
+        // One of the member's events starting or ending off the minute changes what it says too.
+        times += TodayWidgetModel(board: board, me: who.email, photos: [:], now: now).turns(until: times.last ?? now)
         times = Array(Set(times)).sorted()
-        return times.map { TodayEntry(date: $0, model: TodayWidgetModel(snapshot: snapshot, me: who.email, photos: photos, now: $0)) }
+        return times.map { TodayEntry(date: $0, model: TodayWidgetModel(board: board, me: who.email, photos: photos, now: $0)) }
     }
 
     private static func model(_ snapshot: CalendarSnapshot, me: String, at now: Date) -> TodayWidgetModel {

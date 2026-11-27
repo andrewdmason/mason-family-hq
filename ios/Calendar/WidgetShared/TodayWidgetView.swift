@@ -34,10 +34,15 @@ struct TodayWidgetModel {
     }
 
     init(snapshot: CalendarSnapshot, me: String?, photos: [String: Data], now: Date, in calendar: Calendar = .current) {
+        self.init(board: Board.build(snapshot, me: me, in: calendar), me: me, photos: photos, now: now, in: calendar)
+    }
+
+    /// From a board already built, which is most of the work: the widget
+    /// makes one of these for every minute ahead from the one board.
+    init(board: Board, me: String?, photos: [String: Data], now: Date, in calendar: Calendar = .current) {
         self.now = now
         self.photos = photos
         day = Day(now, in: calendar)
-        let board = Board.build(snapshot, me: me, in: calendar)
         let shown = CalendarShared.shown(board.members)
         layout = DayLayout.build(day: day, board: board, shown: shown, me: me, showHidden: false, in: calendar)
         let emails = Set(shown.map(\.email))
@@ -189,10 +194,10 @@ struct TodayWidgetView: View {
                 }
             case .gap:
                 let isNow = part.phase == .now
-                // "Free until": a widget is redrawn every so often, not every
-                // minute, and that stays true in between.
+                // How long is left of it, as of this entry: the widget has an
+                // entry for every minute (see TodayProvider), so it keeps count.
                 let lead: String? = if isNow {
-                    part.end.map { "Free until \(Self.clock($0, part, day))" } ?? (anyStops ? "Done for today" : nil)
+                    part.end.map { "\(Rundown.length($0.timeIntervalSince(day.now))) free" } ?? (anyStops ? "Done for today" : nil)
                 } else if let length = part.length {
                     Rundown.length(length)
                 } else if anyStops {
@@ -208,11 +213,6 @@ struct TodayWidgetView: View {
             }
         }
         return lines
-    }
-
-    /// A time in the list, in the clock of the stop it runs up to.
-    private static func clock(_ date: Date, _ part: Rundown.Part, _ day: Rundown) -> String {
-        compact(date, in: (day.nextStop(after: part) ?? part).row?.item.calendar() ?? .current)
     }
 
     /// "8am", "1:35pm".
