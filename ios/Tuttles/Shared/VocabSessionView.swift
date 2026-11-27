@@ -752,7 +752,7 @@ private struct VocabSummaryView: View {
         .sensoryFeedback(.success, trigger: moved) { _, now in now && celebrating }
         .overlay {
             if let chest {
-                VocabChestOpening(chest: chest.chest, coins: summary.pay?.coins ?? VocabPay.bonus(chest.chest), waiting: more,
+                VocabChestOpening(chest: chest.chest, coins: summary.pay?.coins ?? VocabPay.coins(chest.chest, perfect: chest.perfect ?? false), waiting: more,
                                   opening: { store.vocabLocal?.open(chest) },
                                   done: { withAnimation(.smooth(duration: 0.45)) { opened = true } })
                     .transition(.opacity)

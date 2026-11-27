@@ -80,6 +80,8 @@ struct VocabPrize: Codable, Hashable {
     let day: String
     /// They've opened it. Until then the end of its session opens on it, shut.
     var opened: Bool? = nil
+    /// Every answer right, so it held more than gold (VocabPay.coins). Nil from before there were perfect chests.
+    var perfect: Bool? = nil
 
     var isOpen: Bool { opened ?? true }
 }
@@ -303,11 +305,17 @@ struct VocabChestOpening: View {
                     Text(waiting ? "They go in when today's ten minutes are done." : "They're yours to spend.")
                         .font(.headline)
                         .foregroundStyle(.white.opacity(0.85))
-                    if chest != .gold {
-                        Text("9 in 10 right is a gold chest: \(VocabPay.bonus(.gold)) coins.")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.6))
+                    Group {
+                        if chest != .gold {
+                            Text("9 in 10 right is a gold chest: \(VocabPay.bonus(.gold)) coins.")
+                        } else if coins >= VocabPay.perfectCoins {
+                            Text("Every one right: a perfect chest. Gold all day, with the ten minutes done, is a gem.")
+                        } else {
+                            Text("Every one right is \(VocabPay.perfectCoins) coins. Gold all day, with the ten minutes done, is a gem.")
+                        }
                     }
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.6))
                     Button(action: done) {
                         Text("Continue").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
                     }

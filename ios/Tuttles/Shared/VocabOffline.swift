@@ -279,10 +279,12 @@ final class VocabLocal {
         forget(session.id)
         guard session.boss == nil, session.isFinished, session.answered >= min(session.total, VocabChest.fewest),
               !prizes.contains(where: { $0.session == session.id }) else { return }
-        let chest = VocabChest.earned(right: session.correct - spared, counted: session.answered - unknown)
+        let right = session.correct - spared, counted = session.answered - unknown
+        let chest = VocabChest.earned(right: right, counted: counted)
         // (The last few hundred are plenty: they're only looked up by a session still on the phone.)
-        mine.prizes = Array((prizes + [VocabPrize(session: session.id, chest: chest, day: session.day, opened: false)]).suffix(300))
-        earn(VocabPay.chest(chest, session: session.id, day: session.day))
+        let perfect = counted > 0 && right >= counted
+        mine.prizes = Array((prizes + [VocabPrize(session: session.id, chest: chest, day: session.day, opened: false, perfect: perfect)]).suffix(300))
+        earn(VocabPay.chest(chest, perfect: perfect, session: session.id, day: session.day))
     }
 
     /// A boss beaten pays coins and a gem, the once.

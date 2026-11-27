@@ -555,8 +555,10 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertEqual(first.chest, .gold)
         // It pays for the chest (not each right answer), once the purse takes it.
         let pay = try XCTUnwrap(state.summary?.pay)
-        XCTAssertEqual(pay, VocabEarning(key: VocabPay.chestKey(state.sessionId), coins: VocabPay.bonus(.gold), gems: 0, day: local.today(noon)))
-        XCTAssertEqual(local.waitingCoins(now: noon), VocabPay.bonus(.gold))
+        // Every one that counts was right, so it's a perfect chest: more than gold.
+        XCTAssertEqual(first.perfect, true)
+        XCTAssertEqual(pay, VocabEarning(key: VocabPay.chestKey(state.sessionId), coins: VocabPay.perfectCoins, gems: 0, day: local.today(noon)))
+        XCTAssertEqual(local.waitingCoins(now: noon), VocabPay.perfectCoins)
         XCTAssertEqual(local.earnings, [pay])
         XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).earnings, [pay])
         local.settle([pay.key])

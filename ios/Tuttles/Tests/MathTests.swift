@@ -77,10 +77,11 @@ final class MathTests: XCTestCase {
         XCTAssertGreaterThan(MathPay.answer(difficulty: 3, left: 0.5, streak: 1), MathPay.answer(difficulty: 1, left: 0.5, streak: 1))
         XCTAssertGreaterThan(MathPay.answer(difficulty: 2, left: 0.9, streak: 1), MathPay.answer(difficulty: 2, left: 0.1, streak: 1))
         XCTAssertGreaterThan(MathPay.answer(difficulty: 2, left: 0.5, streak: 4), MathPay.answer(difficulty: 2, left: 0.5, streak: 1))
-        // 25 to 70 stars before the run of them, which stops counting at twice.
+        // 25 to 70 stars before the run of them, which stops counting at three times, the ninth in a row.
         XCTAssertEqual(MathPay.answer(difficulty: 1, left: 0, streak: 1), 25)
         XCTAssertEqual(MathPay.answer(difficulty: 3, left: 1, streak: 1), 70)
-        XCTAssertEqual(MathPay.answer(difficulty: 2, left: 0.5, streak: 40), MathPay.answer(difficulty: 2, left: 0.5, streak: 5))
+        XCTAssertGreaterThan(MathPay.answer(difficulty: 2, left: 0.5, streak: 9), MathPay.answer(difficulty: 2, left: 0.5, streak: 5))
+        XCTAssertEqual(MathPay.answer(difficulty: 2, left: 0.5, streak: 40), MathPay.answer(difficulty: 2, left: 0.5, streak: 9))
     }
 
     func testEveryCharacterAndPropInTheGameLoads() {

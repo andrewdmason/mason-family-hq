@@ -133,9 +133,11 @@ enum HouseCatalog {
     /// The room everyone starts with.
     static let first = "bedroom"
 
-    /// What the next room bought with coins costs, by how many they have.
+    /// What the next room bought with coins costs, by how many they have: the
+    /// first five rooms are what the weeks to the test are for, and the dream
+    /// rooms after them go on getting dearer, to as much as the pool.
     static func roomPrice(owned: Int) -> Int {
-        let prices = [0, 800, 1200, 1600, 2000, 2500]
+        let prices = [0, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000]
         return prices[min(max(owned, 0), prices.count - 1)]
     }
 
