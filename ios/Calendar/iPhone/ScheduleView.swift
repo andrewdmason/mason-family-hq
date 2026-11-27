@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// The Schedule view: the calendar as one continuous list, day after day.
-/// Days with nothing on are skipped, except today. Scrolling moves the day up
+/// Days with nothing on are skipped, except today. A day is the member's own
+/// events and the time between them (`RundownRows`) unless Settings says to
+/// list every event. Scrolling moves the day up
 /// top; choosing a day up top scrolls here.
 struct ScheduleView: View {
     let me: String?
@@ -74,6 +76,7 @@ private struct DaySection: View {
     let items: [EventItem]
     let me: String?
     @Environment(CalendarStore.self) private var store
+    @Environment(Prefs.self) private var prefs
 
     private static let weekdays = Calendar.current.weekdaySymbols
     private static let months = Calendar.current.shortMonthSymbols
@@ -102,15 +105,27 @@ private struct DaySection: View {
             .padding(.top, 18)
             .padding(.bottom, 6)
 
-            if items.isEmpty {
-                Text("Nothing on today.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 8)
-            }
-            ForEach(items) { item in
-                ScheduleRow(item: item, isPast: day == today && isOver(item))
+            if prefs.timeBetween {
+                // The member's own events and the time between them. Today's
+                // keeps up with the minute.
+                if day == today {
+                    TimelineView(.everyMinute) { time in
+                        RundownRows(day: day, me: me, now: DemoCalendar.now(time.date))
+                    }
+                } else {
+                    RundownRows(day: day, me: me, now: DemoCalendar.now())
+                }
+            } else {
+                if items.isEmpty {
+                    Text("Nothing on today.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                }
+                ForEach(items) { item in
+                    ScheduleRow(item: item, isPast: day == today && isOver(item))
+                }
             }
         }
         .opacity(day < today ? 0.6 : 1)
@@ -130,7 +145,9 @@ private struct DaySection: View {
     }
 }
 
-private struct ScheduleRow: View {
+/// One event in the Schedule: its times down the left, a bar of whose it is,
+/// its words, and who's in it.
+struct ScheduleRow: View {
     let item: EventItem
     let isPast: Bool
     @Environment(CalendarStore.self) private var store

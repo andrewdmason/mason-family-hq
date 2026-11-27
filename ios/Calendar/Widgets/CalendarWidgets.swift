@@ -9,9 +9,11 @@ struct CalendarWidgets: WidgetBundle {
     }
 }
 
-/// Today on the home screen: the Day view in small, with the phone's own
-/// member in the wide column and the family as pin lines beside it. Tapping an
-/// event opens it in the app; anywhere else opens the app on today.
+/// Today on the home screen: the member's own events from now on and the time
+/// between them, or (with that setting off) the Day view in small, with the
+/// phone's own member in the wide column and the family as pin lines beside
+/// it. Tapping an event opens it in the app; anywhere else opens the app on
+/// today.
 struct TodayWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "CalendarToday", provider: TodayProvider()) { entry in
@@ -69,7 +71,12 @@ private struct TodayProvider: TimelineProvider {
         }
         let quarter: TimeInterval = 15 * 60
         let first = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / quarter).rounded(.down) * quarter + quarter)
-        let times = [now] + (0..<8).map { first.addingTimeInterval(Double($0) * quarter) }
+        var times = [now] + (0..<8).map { first.addingTimeInterval(Double($0) * quarter) }
+        // The list reads differently the moment one of the member's events
+        // starts or ends: redraw then too, not at the next quarter hour.
+        let last = times.last ?? now
+        times += TodayWidgetModel(snapshot: snapshot, me: who.email, photos: [:], now: now).turns(until: last)
+        times = Array(Set(times)).sorted()
         return times.map { TodayEntry(date: $0, model: TodayWidgetModel(snapshot: snapshot, me: who.email, photos: photos, now: $0)) }
     }
 

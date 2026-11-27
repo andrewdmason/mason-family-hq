@@ -621,8 +621,25 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
 - Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes
   to family.mason.io/install/calendar and installed copies show the update
   banner. Each phone must be registered on the developer account first.
+- **The time between** (Settings › *Show time between events*, on unless
+  switched off): Schedule and the widget list a day as the signed-in member's
+  own events and the time between them, the way the Mac's menubar applet does
+  (`Shared/Rundown.swift`; the Mac section below has the rules). In Schedule
+  (`iPhone/TimeBetween.swift`) only the member's events are rows; the time
+  between is one grey line, a clock and its length and who in the family has
+  what on in it, "1h 35m (J: Surfing, S+O: School)", that a tap opens into
+  those events. Today's is tinted where the member is now, with how long is
+  left of an event or how long they're free, and what's been folds into an
+  *Earlier* line. A day with nothing of the member's lists the family's
+  events as they are. Off, Schedule lists every event as it used to.
 - A large home screen widget (`Calendar/Widgets`, target `CalendarWidgets`)
-  shows today as the Day view in small: eight hours from an hour before now,
+  shows the same list from now on (tomorrow's once nothing is left today),
+  as many lines as fit. A widget can't be tapped open, so the family's events
+  get lines of their own when there's room and are named on the gap's line
+  when there isn't; where the member is now reads "Free until 1:35pm" and a
+  bar that fills by itself, since a widget is redrawn every quarter hour and
+  when one of the member's events starts or ends, not every minute. With the
+  setting off it's the Day view in small: eight hours from an hour before now,
   the phone's own member in the wide column and the family as pin lines.
   Tapping an event opens it in the app (`io.mason.calendar://event/<id>`). Its
   view and model are in `Calendar/WidgetShared`, built into the app too so
@@ -642,7 +659,8 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   on it too, as is the look in `iPhone/CalendarStyle.swift`.
 - `--demo` runs on a made-up family week with no sign-in, for the simulator;
   `--me <first name>` chooses whose phone it is, `--view <day|schedule>` the
-  view, `--widget` shows the widget's view at its size, and `--website <url>` points changes at another server.
+  view, `--widget` shows the widget's view at its size, `--now 14:45` pretends
+  it's that time of day, and `--website <url>` points changes at another server.
 
 ## Calendar (Mac)
 

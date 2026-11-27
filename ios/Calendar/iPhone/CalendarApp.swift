@@ -20,7 +20,7 @@ struct RootView: View {
         Group {
             if CommandLine.arguments.contains("--widget") {
                 // The widget's own view at its size, for the simulator.
-                TodayWidgetView(model: TodayWidgetModel(snapshot: store.snapshot, me: DemoCalendar.me, photos: [:], now: Date()))
+                TodayWidgetView(model: TodayWidgetModel(snapshot: store.snapshot, me: DemoCalendar.me, photos: [:], now: DemoCalendar.now()))
                     .padding(16)
                     .frame(width: 364, height: 382)
                     .background(CalendarStyle.ground, in: .rect(cornerRadius: 28, style: .continuous))
