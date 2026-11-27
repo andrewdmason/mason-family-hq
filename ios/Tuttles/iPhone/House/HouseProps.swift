@@ -611,25 +611,127 @@ enum HouseProps {
 
     // MARK: Signs
 
-    /// A bubble that always faces the camera: a "+" for an empty spot, a dot for one with something in it.
-    static func bubble(empty: Bool) -> SCNNode {
-        let material = MathMat.drawn("house-bubble-\(empty)", 128, 128, glow: 0.6, clear: true) { c, size in
-            let w = size.width
-            disc(c, "5a3b2a", w / 2, w / 2, w * 0.48)
-            disc(c, empty ? "c9dd6a" : "fff7e6", w / 2, w / 2, w * 0.4)
-            stroke(c, empty ? "ffffff" : "5a3b2a", empty ? 16 : 10)
-            if empty { line(c, [(w * 0.3, w / 2), (w * 0.7, w / 2)]); line(c, [(w / 2, w * 0.3), (w / 2, w * 0.7)]) }
-            else { line(c, [(w * 0.34, w * 0.62), (w * 0.6, w * 0.36)]); line(c, [(w * 0.34, w * 0.62), (w * 0.33, w * 0.67)]) }
+    // MARK: Stairs
+
+    /// A flight of stairs up the outside of a room, from its floor to the
+    /// one above (HouseLayout.Stairs): treads on two stringers, a landing at
+    /// the top beside the room above, a rail down the outer side, and posts
+    /// to the ground, which is `floor` storeys down. Placed where the room
+    /// under the top one stands. `right`, it's along that room's right side;
+    /// else along its front. Either way it climbs from the front of the lot
+    /// to the back, so the high end hides least.
+    static func stairs(right: Bool, floor: Int) -> SCNNode {
+        let S = HouseCatalog.side, H = HouseCatalog.height
+        let node = SCNNode()
+        node.name = "stairs"
+        let wood = MathMat.color("b98452"), dark = MathMat.color("8a5a3a"), rail = MathMat.color("f6f1e4")
+        // `a` along the side from the back of the room, `o` out from its edge.
+        func put(_ box: SCNNode, _ a: Float, _ y: Float, _ o: Float) {
+            node.add(box, right ? S + o : a, y, right ? a : S + o)
+        }
+        // A box `along` the flight, `out` across it.
+        func box(_ along: Float, _ h: Float, _ out: Float, _ m: SCNMaterial) -> SCNNode {
+            right ? MathShape.box(out, h, along, m) : MathShape.box(along, h, out, m)
+        }
+        // Tipped up the flight: the back end high.
+        func tipped(_ box: SCNNode, by angle: Float) -> SCNNode {
+            if right { box.eulerAngles.x = angle } else { box.eulerAngles.z = -angle }
+            return box
+        }
+        let inner: Float = 0.35, outer: Float = 1.35, steps = 10
+        let landing: Float = 1.2, bottom = S - 0.1
+        let rise = H / Float(steps), run = (bottom - landing) / Float(steps)
+        // The landing, in to the room's own edge.
+        put(box(landing, 0.14, outer, wood), landing / 2, H - 0.07, outer / 2)
+        for i in 0..<(steps - 1) {
+            put(box(run + 0.04, 0.1, outer - inner, wood), bottom - (Float(i) + 0.5) * run, Float(i + 1) * rise - 0.05, (inner + outer) / 2)
+        }
+        let length = hypot(bottom - landing, H), angle = atan2(H, bottom - landing)
+        let mid = (bottom + landing) / 2
+        for o in [inner + 0.06, outer - 0.06] {
+            put(tipped(box(length, 0.26, 0.1, dark), by: angle), mid, H / 2 - 0.2, o)
+        }
+        // A rail down the outer side and round the landing, on posts.
+        let high: Float = 0.95
+        put(tipped(box(length, 0.08, 0.08, rail), by: angle), mid, H / 2 + high, outer - 0.06)
+        put(box(landing, 0.08, 0.08, rail), landing / 2, H + high, outer - 0.06)
+        put(box(0.08, 0.08, outer, rail), 0.04, H + high, outer / 2)
+        for (a, y) in [(bottom, Float(0)), (mid, H / 2), (landing, H), (0.04, H)] {
+            put(box(0.08, high, 0.08, rail), a, y + high / 2, outer - 0.06)
+        }
+        put(box(0.08, high, 0.08, rail), 0.04, H + high / 2, 0.04)
+        // Legs under the landing's outer corners, down to the ground; and, started from an upper floor, under its foot.
+        let down = Float(floor) * H
+        for a in [0.1, landing - 0.1] {
+            put(box(0.12, H + down - 0.14, 0.12, dark), a, (H - 0.14 - down) / 2, outer - 0.1)
+        }
+        if floor > 0 {
+            for o in [inner + 0.06, outer - 0.06] { put(box(0.12, down, 0.12, dark), bottom - 0.1, -down / 2, o) }
+        }
+        return node
+    }
+
+    /// How a spot's marker looks: nothing chosen for it yet, something in it, or the one the card's up for.
+    enum Marker: String {
+        case empty, filled, chosen
+    }
+
+    /// A marker on a spot, always facing the camera. An empty spot's is a
+    /// white tag with a picture of what goes there and a "+"; one with
+    /// something in it is a small white dot, since the thing itself is there
+    /// to see; the one the card's up for is the tag in red. All the same
+    /// size to tap, whatever's drawn.
+    static func marker(_ symbol: String, _ state: Marker) -> SCNNode {
+        let material = MathMat.drawn("house-marker-\(symbol)-\(state.rawValue)", 192, 192, glow: 0.55, clear: true) { c, size in
+            let w = size.width, mid = w / 2
+            let ink = "5a3b2a", red = "d6261f"
+            switch state {
+            case .filled:
+                c.setFillColor(UIColor.white.withAlphaComponent(0.45).cgColor)
+                c.fillEllipse(in: CGRect(x: mid - 40, y: mid - 40, width: 80, height: 80))
+                c.setFillColor(ui(ink).withAlphaComponent(0.35).cgColor)
+                c.fillEllipse(in: CGRect(x: mid - 25, y: mid - 23, width: 50, height: 50))
+                disc(c, "ffffff", mid, mid, 22)
+            case .empty, .chosen:
+                let on = state == .chosen, r: CGFloat = 66
+                // A soft shadow under it, so it lifts off whatever's behind.
+                c.setFillColor(ui(ink).withAlphaComponent(0.28).cgColor)
+                c.fillEllipse(in: CGRect(x: mid - r - 3, y: mid - r + 2, width: r * 2 + 6, height: r * 2 + 6))
+                disc(c, on ? red : "ffffff", mid, mid, r)
+                if on {
+                    c.setStrokeColor(UIColor.white.cgColor)
+                    c.setLineWidth(7)
+                    c.strokeEllipse(in: CGRect(x: mid - r + 3.5, y: mid - r + 3.5, width: r * 2 - 7, height: r * 2 - 7))
+                }
+                glyph(symbol, on ? "ffffff" : ink, in: CGRect(x: mid - 38, y: mid - 38, width: 76, height: 76))
+                guard !on, symbol != "plus" else { return }
+                // A "+" at its corner: something to add.
+                let bx = mid + 50, by = mid - 50
+                disc(c, "ffffff", bx, by, 27)
+                disc(c, red, bx, by, 22)
+                stroke(c, "ffffff", 7)
+                line(c, [(bx - 11, by), (bx + 11, by)])
+                line(c, [(bx, by - 11), (bx, by + 11)])
+            }
         }
         material.readsFromDepthBuffer = false
         material.writesToDepthBuffer = false
-        let node = MathShape.card(0.52, 0.52, material)
+        let node = MathShape.card(0.78, 0.78, material)
         node.constraints = [SCNBillboardConstraint()]
-        node.renderingOrder = 100
-        let pulse = SCNAction.sequence([.scale(to: 1.1, duration: 0.7), .scale(to: 1, duration: 0.7)])
-        pulse.timingMode = .easeInEaseOut
-        if empty { node.runAction(.repeatForever(pulse)) }
+        node.renderingOrder = state == .chosen ? 101 : 100
+        node.castsShadow = false
+        if state == .chosen { node.scale = SCNVector3(1.2, 1.2, 1.2) }
         return node
+    }
+
+    /// A system symbol, as big as fits in `rect`. A plus if there's no such symbol.
+    private static func glyph(_ name: String, _ hex: String, in rect: CGRect) {
+        let config = UIImage.SymbolConfiguration(pointSize: rect.height, weight: .bold)
+        guard let image = (UIImage(systemName: name, withConfiguration: config) ?? UIImage(systemName: "plus", withConfiguration: config))?
+            .withTintColor(ui(hex), renderingMode: .alwaysOriginal) else { return }
+        let k = min(rect.width / image.size.width, rect.height / image.size.height)
+        let size = CGSize(width: image.size.width * k, height: image.size.height * k)
+        image.draw(in: CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
     }
 
     /// A sign that faces the camera: a house's name, a locked room's price.
@@ -652,5 +754,33 @@ enum HouseProps {
         node.constraints = [SCNBillboardConstraint()]
         node.renderingOrder = 90
         return node
+    }
+}
+
+extension HouseSpot {
+    /// The picture on its marker: what sort of thing goes there.
+    var symbol: String {
+        switch place {
+        case .walls: return "paintbrush.fill"
+        case .flooring: return "square.grid.2x2.fill"
+        case .pet: return "pawprint.fill"
+        case .ceiling: return "lamp.ceiling.fill"
+        case .rug: return id == "pond" ? "drop.fill" : "square.dashed"
+        case .wall: return "photo.fill"
+        case .on: return "fork.knife"
+        case .floor, .against: break
+        }
+        return [
+            "bed": "bed.double.fill", "bedside": "lamp.table.fill", "lamp": "lamp.floor.fill",
+            "desk": "table.furniture.fill", "table": "table.furniture.fill", "counter": "table.furniture.fill",
+            "chair": "chair.fill", "chair1": "chair.fill", "chair2": "chair.fill", "armchair": "chair.lounge.fill",
+            "seat": "chair.lounge.fill", "bench": "chair.lounge.fill", "sofa": "sofa.fill",
+            "shelf": "books.vertical.fill", "tree": "tree.fill",
+            "tv": "tv.fill", "arcade": "gamecontroller.fill",
+            "fridge": "refrigerator.fill", "stove": "stove.fill", "sink": "sink.fill",
+            "bath": "bathtub.fill", "toilet": "toilet.fill", "washer": "washer.fill",
+            "boxes": "shippingbox.fill", "scope": "binoculars.fill",
+        // A corner takes all sorts: just a plus.
+        ][id] ?? "plus"
     }
 }
