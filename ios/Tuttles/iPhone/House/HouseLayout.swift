@@ -24,8 +24,10 @@ import Foundation
 //
 // A room's furniture is against its north and west walls as it's drawn (the
 // catalogue's "right" and "left"), which leaves the east and south sides
-// open: a door can go anywhere along those, and in the last metre of the
-// other two.
+// open: a door can go anywhere along those. Along the other two it can go
+// wherever nothing in the catalogue stands (`doors(of:)`): always the last
+// metre, and any other that no piece of furniture is against. (The kitchen
+// has nothing down its west wall, so a door can be anywhere in it.)
 
 enum HouseSide: Int, CaseIterable {
     case north, east, south, west
@@ -259,7 +261,7 @@ enum HouseLayout {
     static func doorways(_ all: [String: HousePlot], floor: Int) -> [(a: String, b: String, edge: HousePlan.Edge)] {
         let here = all.keys.filter { all[$0]!.floor == floor && !yard($0) }.sorted()
         var clear: [String: Set<HousePlan.Edge>] = [:]
-        for room in here { clear[room] = Set(shape(room).doors.map { edge(room, all[room]!, $0) }) }
+        for room in here { clear[room] = Set(doors(of: room).map { edge(room, all[room]!, $0) }) }
         var out: [(String, String, HousePlan.Edge)] = []
         for (n, a) in here.enumerated() {
             for b in here.dropFirst(n + 1) {
@@ -279,7 +281,10 @@ enum HouseLayout {
         case nothingUnder(String)
         case underStairs
         case frontDoor
+        /// A room on its own, touching no other.
         case noWayIn(String)
+        /// A room that touches another, but only along walls with things against them: nowhere for a door.
+        case noDoor(String)
 
         /// Said to whoever's moving `moving`.
         func message(moving: String? = nil) -> String {
@@ -296,7 +301,13 @@ enum HouseLayout {
                 return "The \(HouseLayout.name(room).lowercased()) needs a room under all of it."
             case .underStairs: return "The basement goes under the stairs in the hall."
             case .frontDoor: return "The front door has to open outdoors."
-            case .noWayIn(let room): return "There'd be no door into the \(HouseLayout.name(room).lowercased())."
+            case .noWayIn(let room):
+                if moving == room { return "The \(HouseLayout.name(room).lowercased()) has to touch another room, to have a door." }
+                return "That would leave the \(HouseLayout.name(room).lowercased()) on its own, with no door."
+            case .noDoor(let room):
+                // Whoever's moving it is told what to do about it: things stand against the wall it's been put to.
+                if moving == room { return "No door fits in that wall: things stand against it. Slide it along, or turn it." }
+                return "That would leave no door into the \(HouseLayout.name(room).lowercased())."
             }
         }
     }
@@ -349,7 +360,14 @@ enum HouseLayout {
                     if seen.insert(next).inserted { todo.append(next) }
                 }
             }
-            if let lost = here.first(where: { !seen.contains($0) }) { return .noWayIn(lost) }
+            if let lost = here.first(where: { !seen.contains($0) }) {
+                // On its own; or up against another room, with nowhere in the wall between for a door.
+                let others = here.filter { $0 != lost }.reduce(into: Set<HouseCell>()) { $0.formUnion(squares[$1]!) }
+                let touching = squares[lost]!.contains { c in
+                    [(1, 0), (-1, 0), (0, 1), (0, -1)].contains { others.contains(HouseCell(x: c.x + $0.0, z: c.z + $0.1)) }
+                }
+                return touching ? .noDoor(lost) : .noWayIn(lost)
+            }
         }
         return nil
     }
@@ -432,6 +450,42 @@ enum HouseLayout {
         for room in waiting.sorted(by: { ($0 == basement ? 1 : 0) < ($1 == basement ? 1 : 0) }) {
             out[room] = place(for: room, in: out, field: field) ?? home[room] ?? HousePlot(0, back)
         }
+        return out
+    }
+
+    private static var ways: [String: [HouseWall]] = [:]
+
+    /// Every metre of a room's walls a door can be in: those its shape keeps
+    /// clear (all of its south and east sides, the last metre of the others),
+    /// and whatever else of its north and west walls has nothing standing
+    /// at it. A thing against a wall takes the metre either side of its
+    /// middle; one on the floor close by takes the metre it's at. (A picture
+    /// doesn't count: it comes down when there's a door in its wall.)
+    static func doors(of room: String) -> [HouseWall] {
+        if let hit = ways[room] { return hit }
+        let s = shape(room)
+        var out = s.doors
+        if let found = HouseCatalog.room(room), !fixture(room), !s.outdoor {
+            /// The metres of a wall this long that overlap from `a` to `b` along it.
+            func span(_ a: Float, _ b: Float, _ long: Int) -> [Int] { (0..<long).filter { Float($0) < b && Float($0 + 1) > a } }
+            var north: Set<Int> = [], west: Set<Int> = []
+            for spot in found.spots {
+                switch spot.place {
+                case .against(let left, let along):
+                    if left { west.formUnion(span(along * s.stretch.z - 1, along * s.stretch.z + 1, s.depth)) }
+                    else { north.formUnion(span(along * s.stretch.x - 1, along * s.stretch.x + 1, s.width)) }
+                case .floor(let x, let z, _), .pet(let x, let z):
+                    let (px, pz) = (x * s.stretch.x, z * s.stretch.z)
+                    if pz < 1.1 { north.formUnion(span(px - 0.6, px + 0.6, s.width)) }
+                    if px < 1.1 { west.formUnion(span(pz - 0.6, pz + 0.6, s.depth)) }
+                default: break
+                }
+            }
+            for at in 0..<s.width where !north.contains(at) { out.append(HouseWall(side: .north, at: at)) }
+            for at in 0..<s.depth where !west.contains(at) { out.append(HouseWall(side: .west, at: at)) }
+            out = Array(Set(out))
+        }
+        ways[room] = out
         return out
     }
 

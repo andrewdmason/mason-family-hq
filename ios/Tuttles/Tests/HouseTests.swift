@@ -228,7 +228,7 @@ final class HouseTests: XCTestCase {
         // The field behind isn't theirs yet.
         XCTAssertEqual(problem(["bedroom": HousePlot(0, 9)]), .offTheLot("bedroom"))
         // Touching the hall, but along a wall of the hall's with the stairs against it: still no door.
-        XCTAssertEqual(problem(["bedroom": HousePlot(4, 21)]), .noWayIn("bedroom"))
+        XCTAssertEqual(problem(["bedroom": HousePlot(4, 21)]), .noDoor("bedroom"))
         // Upstairs with nothing under it; over a room, and joined to the landing.
         XCTAssertEqual(problem(["bedroom": bedroom, "den": HousePlot(12, 20, floor: 1)]), .nothingUnder("den"))
         XCTAssertNil(problem(["bedroom": bedroom, "living": HouseLayout.home["living"]!, "den": HouseLayout.home["den"]!]))

@@ -264,7 +264,10 @@ in each room fixed spots, each with its own things to choose between.
   and a door into every room. Doors aren't placed: one's made wherever two
   rooms share a metre of wall both keep clear (a room's things are against
   its north and west walls as it's drawn, so its east and south sides are
-  clear), and between two open rooms it's an arch. Every house has a hall
+  clear; of the other two, whatever metres nothing in the catalogue stands
+  at, `HouseLayout.doors(of:)`), and between two open rooms it's an arch. A
+  room put where it can't have one is told why: it touches no other room,
+  or things stand against the wall between, and to slide it along or turn it. Every house has a hall
   with the front door and the stairs in it, and a landing over it once
   there's a room upstairs; neither is bought (`HouseCatalog.fixtures`).
   Where rooms stand is kept as `HouseState.plots` ([x, z, floor, turn]); a

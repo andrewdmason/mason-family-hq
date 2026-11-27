@@ -262,6 +262,54 @@ final class HouseYardTests: XCTestCase {
         XCTAssertEqual(shut.standing?.isHidden, false)
     }
 
+    // MARK: Doors
+
+    func testARoomLinedUpWithTheHallGetsADoorWhereverNothingStands() throws {
+        var state = HouseState()
+        state.coins = 5_000
+        let kitchen = try XCTUnwrap(HouseCatalog.room("kitchen"))
+        // Squarely beside the hall, its west wall to the hall's east. Nothing of the kitchen's stands against
+        // that wall (only a picture hangs on it), so there's a door, somewhere the hall keeps clear.
+        let beside = HousePlot(12, 20)
+        XCTAssertNil(state.problem(putting: "kitchen", at: beside))
+        XCTAssertTrue(state.unlock(kitchen, at: beside))
+        let ways = HouseLayout.doorways(state.layout, floor: 0)
+        let door = try XCTUnwrap(ways.first { Set([$0.a, $0.b]) == ["hall", "kitchen"] })
+        XCTAssertEqual(door.edge.x, 12)
+        XCTAssertFalse(door.edge.across)
+        XCTAssertTrue((20..<24).contains(door.edge.z), "the door's at \(door.edge.z), where the hall has something in its corner")
+        // Its north wall is the cooker, the fridge and the sink from end to end: put under the bedroom that way
+        // round, with only its last metre past the bedroom's corner, there's nowhere for a door, and they're
+        // told what to do about it.
+        var other = HouseState()
+        let south = HousePlot(5, 25)
+        XCTAssertEqual(other.problem(putting: "kitchen", at: south), .noDoor("kitchen"))
+        XCTAssertEqual(other.problem(putting: "kitchen", at: south)?.message(moving: "kitchen"),
+                       "No door fits in that wall: things stand against it. Slide it along, or turn it.")
+        // On its own, touching nothing: a different thing to be told.
+        XCTAssertEqual(other.problem(putting: "kitchen", at: HousePlot(0, 10)), .noWayIn("kitchen"))
+        XCTAssertEqual(other.problem(putting: "kitchen", at: HousePlot(0, 10))?.message(moving: "kitchen"), "The kitchen has to touch another room, to have a door.")
+        other.coins = 0
+    }
+
+    func testNoDoorIsEverWhereFurnitureStands() {
+        for room in HouseCatalog.rooms where !HouseLayout.shape(room.id).outdoor {
+            let shape = HouseLayout.shape(room.id)
+            let doors = HouseLayout.doors(of: room.id)
+            // Everything its shape keeps clear is still a place for one: nothing that worked has stopped working.
+            XCTAssertTrue(Set(shape.doors).isSubset(of: Set(doors)), room.id)
+            for spot in room.spots {
+                guard case .against(let left, let along) = spot.place else { continue }
+                let middle = Int(along * (left ? shape.stretch.z : shape.stretch.x))
+                XCTAssertFalse(doors.contains(HouseWall(side: left ? .west : .north, at: middle)), "a door behind \(room.id).\(spot.id)")
+            }
+        }
+        // The kitchen's west wall is clear but for where the table and chairs are; its north wall, only at the end of it.
+        let kitchen = HouseLayout.doors(of: "kitchen")
+        XCTAssertTrue(Set(kitchen.filter { $0.side == .west }.map(\.at)).isSuperset(of: [0, 1, 4]))
+        XCTAssertEqual(Set(kitchen.filter { $0.side == .north }.map(\.at)), [4])
+    }
+
     // MARK: Opening the street
 
     func testOnlyAHouseThatsChangedIsBuiltAgainAndTheirOwnComesFirst() {
