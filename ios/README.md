@@ -293,6 +293,21 @@ in each room fixed spots, each with its own things to choose between.
   While the house is up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
+- Two of a room's spots aren't places in it: its Wood and its Fabric, the
+  colour of every wooden and every upholstered thing in the room. The kit's
+  parts are named for what they're made of ("wood", "carpet", "lamp"), and
+  `HouseProps.finish` gives a thing's parts the room's materials.
+- The outside of the house is theirs too (`HouseCatalog.outside`, kept like a
+  room's spots under "outside.roof" and so on): the roof's colour and shape,
+  what the walls are clad in, the front door, something on the roof and
+  something on the lawn. With their house in view and no room in focus the
+  red button is "Decorate outside", and while its card's up the house stays
+  shut (`HouseStage.shut`) so the roof's there to see.
+- The street keeps the phone's time of day (`HouseSky.swift`): the sun low
+  and orange about sunrise and sunset (earlier in winter, by the day of the
+  year), and at night a bluer, dimmer light, the lamps in the open house on
+  (each lighting only its own room, by `categoryBitMask`), the windows of a
+  shut house lit, and the night through the windows inside.
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
   street comes back and is kept, so the other house shows with no connection.
   The parents see the street and each purse.
@@ -301,7 +316,10 @@ in each room fixed spots, each with its own things to choose between.
   `--house-add kitchen` opens on choosing where that room goes,
   `--house-floor 0` shows the house up to that floor,
   `--house-fill 0` gives every room with each spot's first thing in it (`2`:
-  its third), and `--house-sizes` prints each kit model's size.
+  its third), `--house-decorate` with a room opens its card, `--house-outside` the card
+  for the outside,
+  `--house-hour 21.5` makes it half past nine at night, and `--house-sizes`
+  prints each kit model's size.
 
 ## Tuttles (Mac)
 

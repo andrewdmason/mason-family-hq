@@ -1,3 +1,4 @@
+import SceneKit
 import XCTest
 @testable import Tuttles
 
@@ -387,6 +388,164 @@ final class HouseTests: XCTestCase {
         XCTAssertEqual(HouseLayout.stairs(cells), [HouseLayout.Stairs(top: [2, 1, 0], right: false)])
         // The basement's under the ground: no stairs for it here.
         XCTAssertEqual(HouseLayout.stairs(["bedroom": [0, 0, 0], "basement": [0, -1, 0]]), [])
+    }
+
+    // MARK: Wood and cloth
+
+    func testARoomsWoodAndClothAreChoicesOfItsOwn() throws {
+        let bedroom = try XCTUnwrap(HouseCatalog.room("bedroom"))
+        let wood = try XCTUnwrap(bedroom.spot("wood")), fabric = try XCTUnwrap(bedroom.spot("fabric"))
+        // As the kit makes them until something else is chosen, and free to go back to.
+        XCTAssertNotNil(wood.starter)
+        XCTAssertNotNil(fabric.starter)
+        var state = HouseState()
+        XCTAssertTrue(state.untouched(wood, of: "bedroom"))
+        let furnished = state.filled
+        state.coins = 100
+        let walnut = try XCTUnwrap(wood.items.first { $0.id == "bedroom.wood.walnut" })
+        XCTAssertTrue(state.place(walnut, in: wood, of: "bedroom"))
+        XCTAssertEqual(state.coins, 100 - walnut.coins)
+        XCTAssertEqual(state.item(in: wood, of: "bedroom"), walnut)
+        XCTAssertFalse(state.untouched(wood, of: "bedroom"))
+        // They're not places in the room: the house is no more furnished for them.
+        XCTAssertEqual(state.filled.1, furnished.1)
+        // The same choices in every room that has them, each room's its own to buy.
+        let living = try XCTUnwrap(HouseCatalog.room("living")?.spot("wood"))
+        XCTAssertEqual(living.items.map(\.name), wood.items.map(\.name))
+        XCTAssertFalse(state.owns(try XCTUnwrap(living.items.first { $0.id == "living.wood.walnut" })))
+    }
+
+    func testChosenWoodIsOnEveryWoodenPartAndNoOtherCopy() {
+        func made(_ node: SCNNode) -> Set<String> {
+            var out = Set<String>()
+            node.enumerateHierarchy { n, _ in if let name = n.geometry?.firstMaterial?.name { out.insert(name) } }
+            return out
+        }
+        let bed = HouseProps.kit("bedSingle")
+        XCTAssertTrue(made(bed).isSuperset(of: ["wood", "carpet"]))
+        HouseProps.finish(bed, wood: (MathMat.color("8a5a3c"), MathMat.color("6b432b")), fabric: MathMat.color("2f4f8f"), lit: false, category: 2)
+        XCTAssertTrue(made(bed).isDisjoint(with: ["wood", "woodDark", "carpet"]))
+        // The sheets are still sheets, and the next bed made is as the kit has it.
+        XCTAssertTrue(made(bed).contains("carpetWhite"))
+        XCTAssertTrue(made(HouseProps.kit("bedSingle")).isSuperset(of: ["wood", "carpet"]))
+    }
+
+    // MARK: Outside
+
+    func testTheOutsideOfTheHouseIsTheirsToChoose() throws {
+        let outside = HouseCatalog.outside
+        // Not a room: nothing to buy, nowhere to put it.
+        XCTAssertNil(HouseCatalog.room(outside.id))
+        XCTAssertFalse(HouseCatalog.rooms.contains(outside))
+        XCTAssertEqual(Set(outside.spots.map(\.id)).count, outside.spots.count)
+        for spot in outside.spots {
+            XCTAssertNotNil(UIImage(systemName: spot.symbol), "outside.\(spot.id): no symbol called \(spot.symbol)")
+            // The roof, its shape, the walls and the door are always something; the roof and the lawn start bare.
+            XCTAssertEqual(spot.starter != nil, ["roof", "shape", "walls", "door"].contains(spot.id), spot.id)
+            let coins = spot.items.filter { $0.coins > 0 }.map(\.coins)
+            XCTAssertLessThanOrEqual(try XCTUnwrap(coins.min()), 300, spot.id)
+            for item in spot.items {
+                XCTAssertFalse(item.name.isEmpty || item.blurb.isEmpty, item.id)
+                XCTAssertFalse(item.coins > 0 && item.gems > 0, item.id)
+                XCTAssertEqual(HouseCatalog.item(item.id), item)
+            }
+        }
+        // Theirs from the start, with no room to own first; bought once, and kept when the house is.
+        var state = HouseState()
+        state.coins = 200
+        let roof = try XCTUnwrap(outside.spot("roof")), slate = try XCTUnwrap(roof.items.first { $0.id == "outside.roof.slate" })
+        XCTAssertTrue(state.place(slate, in: roof, of: outside.id))
+        XCTAssertEqual(state.coins, 200 - slate.coins)
+        let back = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(back.item(in: roof, of: outside.id), slate)
+        XCTAssertEqual(back.coins, state.coins)
+    }
+
+    func testDecoratingTheOutsideShutsTheHouse() {
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        stage.setDecorating(true)
+        var state = HouseState()
+        state.rooms = ["bedroom", "living"]
+        state.settle()
+        state.placed["outside.top"] = "outside.top.chimney"
+        stage.show([HouseShown(kid: "me", name: "Me", mine: true, state: state, look: .plain)])
+        stage.fly(to: .house("me"), animated: false)
+        func has(_ name: String) -> Bool { stage.scene.rootNode.childNode(withName: name, recursively: true) != nil }
+        // Open: the bed's there to see, and what's on the roof has gone with the roof.
+        XCTAssertTrue(has("thing:bedroom.bed"))
+        XCTAssertFalse(has("thing:outside.top"))
+        // The card up for the outside: shut, close as the camera is, and held there.
+        stage.lift("me", HouseCatalog.outside.id, spot: "roof")
+        XCTAssertEqual(stage.shut, "me")
+        XCTAssertEqual(stage.focus, .house("me"))
+        XCTAssertFalse(has("thing:bedroom.bed"))
+        XCTAssertTrue(has("thing:outside.top"))
+        stage.drop()
+        XCTAssertNil(stage.shut)
+        XCTAssertTrue(has("thing:bedroom.bed"))
+    }
+
+    func testWhatsOnTheRoofIsOnTheHighestRoomWithARoof() {
+        var state = HouseState()
+        XCTAssertEqual(HouseStage.crowned(state), [0, 0, 0])
+        // The observatory has a dome, and the room under it no roof of its own: it's the living room's.
+        state.rooms = ["bedroom", "living", "observatory"]
+        state.cells = ["bedroom": [0, 0, 0], "living": [1, 0, 0], "observatory": [0, 1, 0]]
+        XCTAssertEqual(HouseStage.crowned(state), [1, 0, 0])
+        // A roof's as high at its ridge as its shape says, and lower down the slope.
+        XCTAssertGreaterThan(HouseProps.rise("steep", 0, 0), HouseProps.rise("gable", 0, 0))
+        XCTAssertGreaterThan(HouseProps.rise("gable", 0, 0), HouseProps.rise("gable", 1, 0))
+        XCTAssertEqual(HouseProps.rise("flat", 0, 0), HouseProps.rise("flat", 1, 1))
+    }
+
+    // MARK: The time of day
+
+    func testTheStreetKeepsTheTimeOfDay() {
+        let winter = 330, summer = 172
+        // Dark earlier in winter.
+        XCTAssertLessThan(HouseSky.sun(dayOfYear: winter).set, HouseSky.sun(dayOfYear: summer).set)
+        XCTAssertGreaterThan(HouseSky.sun(dayOfYear: winter).rise, HouseSky.sun(dayOfYear: summer).rise)
+        let noon = HouseSky.at(hour: 12, dayOfYear: winter)
+        XCTAssertEqual(noon, .noon)
+        XCTAssertFalse(noon.lit)
+        XCTAssertEqual(noon.outlook, .day)
+        for hour in [22.0, 3.0] {
+            let night = HouseSky.at(hour: hour, dayOfYear: winter)
+            XCTAssertEqual(night.day, 0)
+            XCTAssertTrue(night.lit)
+            XCTAssertEqual(night.outlook, .night)
+            // Never so dark a room can't be seen.
+            XCTAssertGreaterThanOrEqual(night.ambient.intensity, 400)
+        }
+        // Half past five: lamps on in November, broad daylight in June.
+        XCTAssertTrue(HouseSky.at(hour: 17.5, dayOfYear: winter).lit)
+        XCTAssertFalse(HouseSky.at(hour: 17.5, dayOfYear: summer).lit)
+        // The sun's lowest, and the light most orange, as it sets.
+        let set = HouseSky.sun(dayOfYear: winter).set
+        XCTAssertEqual(HouseSky.at(hour: set, dayOfYear: winter).low, 1, accuracy: 0.01)
+        XCTAssertEqual(HouseSky.at(hour: set, dayOfYear: winter).outlook, .dusk)
+    }
+
+    func testAtNightTheLampsOfTheOpenHouseAreOn() {
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        var state = HouseState()
+        state.placed["bedroom.bedside"] = "bedroom.bedside.lamp"
+        stage.show([HouseShown(kid: "me", name: "Me", mine: true, state: state, look: .plain)])
+        stage.fly(to: .room("me", "bedroom"), animated: false)
+        func lamps() -> [SCNLight] {
+            var out: [SCNLight] = []
+            stage.scene.rootNode.childNode(withName: "room:me:bedroom", recursively: true)?.enumerateHierarchy { n, _ in if let light = n.light { out.append(light) } }
+            return out
+        }
+        XCTAssertTrue(lamps().isEmpty)
+        stage.setSky(.at(hour: 22, dayOfYear: 330))
+        XCTAssertEqual(lamps().count, 1)
+        // Its light is the bedroom's own: it falls on nothing that's everyone's, or another room's.
+        XCTAssertEqual(lamps().first.map { $0.categoryBitMask & 1 }, 0)
+        stage.setSky(.noon)
+        XCTAssertTrue(lamps().isEmpty)
     }
 
     // MARK: The markers on spots

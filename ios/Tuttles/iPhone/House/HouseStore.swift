@@ -183,9 +183,10 @@ struct HouseState: Codable, Equatable {
     mutating func settle() { cells = HouseLayout.settle(rooms, from: cells) }
 
     /// Put a thing in its spot, buying it first if it isn't theirs. True if it's there now.
+    /// (The outside of the house is always theirs to change.)
     @discardableResult
     mutating func place(_ item: HouseItem, in spot: HouseSpot, of room: String) -> Bool {
-        guard has(room: room), spot.items.contains(item) else { return false }
+        guard has(room: room) || room == HouseCatalog.outside.id, spot.items.contains(item) else { return false }
         if !owns(item) {
             guard canAfford(coins: item.coins, gems: item.gems) else { return false }
             coins -= item.coins
@@ -422,7 +423,7 @@ final class HouseStore {
         if let gems { saved.state.gems = gems }
         if let fill {
             saved.state.rooms = HouseCatalog.rooms.map(\.id)
-            for room in HouseCatalog.rooms { for spot in room.spots {
+            for room in HouseCatalog.rooms + [HouseCatalog.outside] { for spot in room.spots {
                 let item = spot.items[min(fill, spot.items.count - 1)]
                 saved.state.owned.append(item.id)
                 saved.state.placed[HouseCatalog.key(room.id, spot.id)] = item.id

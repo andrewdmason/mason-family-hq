@@ -22,6 +22,13 @@ import UIKit
 // the room, and a tap on a thing in it is a tap on that thing's spot. Only
 // a card over the bottom of the screen, or a room being put somewhere,
 // holds what's in focus while the town's moved.
+//
+// A house's outside is its own to choose (HouseCatalog.outside): the roof
+// and its shape, what the walls are clad in, the front door, something on
+// the roof and something on the lawn. While the card for those is up their
+// house stays shut, close as the camera is. And the town keeps the time of
+// day (HouseSky.swift): at night the lamps in the open house are on, and
+// the windows of a shut one are lit.
 
 /// One house to show: whose, and how it stands.
 struct HouseShown: Equatable {
@@ -69,6 +76,12 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private(set) var decorating = false
     /// The spot the card's for ("den.desk"): its marker stands out.
     private(set) var chosen: String?
+    /// The house whose outside the card's up for: it stays shut, though the camera's on it.
+    private(set) var shut: String?
+    /// The time of day over the town.
+    private(set) var sky = HouseSky.noon
+    private let sun = SCNNode()
+    private let ambient = SCNNode()
     /// Where the camera was before the card came up, and where the card put it.
     private var beforeLift: (was: Roam, put: Roam)?
     /// The highest floor shown in a house (nil: all of it).
@@ -151,42 +164,49 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         cameraNode.simdPosition = Self.back * 120
         cameraNode.look(at: SCNVector3(0, 0, 0))
 
-        let sun = SCNNode()
         sun.light = SCNLight()
         sun.light?.type = .directional
-        sun.light?.intensity = 780
-        sun.light?.color = UIColor(red: 1, green: 0.97, blue: 0.9, alpha: 1)
         sun.light?.castsShadow = true
         sun.light?.shadowMode = .deferred
-        sun.light?.shadowColor = UIColor(white: 0, alpha: 0.22)
         sun.light?.shadowRadius = 6
         sun.light?.shadowSampleCount = 8
         sun.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
         sun.light?.orthographicScale = 40
         sun.light?.zFar = 300
-        sun.simdPosition = SIMD3(40, 90, 70)
-        sun.look(at: SCNVector3(0, 4, -4))
         scene.rootNode.addChildNode(sun)
-        let ambient = SCNNode()
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
-        ambient.light?.intensity = 620
-        ambient.light?.color = UIColor(red: 0.95, green: 0.97, blue: 1, alpha: 1)
         scene.rootNode.addChildNode(ambient)
-        scene.background.contents = Self.sky
         scene.rootNode.addChildNode(ground)
+        light()
     }
 
-    /// Pale blue, with a few clouds low down.
-    private static let sky: UIImage = MathMat.image("house-sky", 256, 512) { c, size in
-        let colors = [UIColor(red: 0.74, green: 0.93, blue: 0.97, alpha: 1).cgColor, UIColor(red: 0.86, green: 0.96, blue: 0.98, alpha: 1).cgColor] as CFArray
-        if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
-            c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-        }
-        c.setFillColor(UIColor.white.withAlphaComponent(0.9).cgColor)
-        for (x, y, r) in [(40.0, 440.0, 60.0), (110, 470, 80), (200, 450, 70), (230, 90, 34), (190, 100, 26), (20, 150, 30)] {
-            c.fillEllipse(in: CGRect(x: x - r, y: y - r * 0.6, width: r * 2, height: r * 1.2))
-        }
+    // MARK: The time of day
+
+    /// The time of day's changed. The light follows it as it goes; the
+    /// houses are only built again when the lamps come on or go off, or
+    /// what's through the windows changes.
+    func setSky(_ new: HouseSky) {
+        guard new != sky else { return }
+        let rebuilt = new.lit != sky.lit || new.outlook != sky.outlook
+        sky = new
+        light()
+        guard rebuilt else { return }
+        for house in houses { update(house) }
+        tidy()
+    }
+
+    /// The sun, or the moon, and the light that's everywhere, as the sky has them.
+    private func light() {
+        let from = sky.sun
+        sun.light?.intensity = from.intensity
+        sun.light?.color = from.color
+        sun.light?.shadowColor = UIColor(white: 0, alpha: sky.shadow)
+        sun.simdPosition = from.from
+        sun.look(at: SCNVector3(0, 4, -4))
+        ambient.light?.intensity = sky.ambient.intensity
+        ambient.light?.color = sky.ambient.color
+        scene.background.contents = sky.picture
     }
 
     // MARK: What's shown
@@ -355,6 +375,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         // Trees at the back of the lot; not while choosing where a room goes, so they're not in the way.
         if !(house.mine && placing != nil) { yard.addChildNode(HouseLand.garden(state, seed: house.kid)) }
         root.addChildNode(yard)
+        // What's on the roof and on the lawn, while it's shut.
+        let look = Outside(state, lit: sky.lit)
+        if !open(house.kid) { Self.trimmings(of: root, state: state, look: look) }
         // Whose it is, over the top of it.
         let top = state.rooms.map { state.cell(of: $0) }.max { $0[1] < $1[1] } ?? [0, 0, 0]
         let sign = HouseProps.sign([house.mine ? "My house" : "\(house.name)'s house"], width: 5.2)
@@ -377,6 +400,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
         // Facing out, towards whoever's looking.
         character.node.eulerAngles.y = .pi * 1.25
+        // Lit by the lamps of the room they're in.
+        let lamps = Self.category(home.id)
+        character.node.enumerateHierarchy { n, _ in n.categoryBitMask = 1 | lamps }
         root.addChildNode(character.node)
         return root
     }
@@ -386,12 +412,20 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let node = SCNNode()
         node.name = "room:\(house.kid):\(room.id)"
         var paint = ("f3ead2", "c9b78f"), flooring = ("boards", "c98f55", "a8733f")
+        // The room's wood and cloth, where they aren't as the kit makes them.
+        var wood: (main: SCNMaterial, dark: SCNMaterial)?, fabric: SCNMaterial?
         for spot in room.spots {
             guard let item = house.state.item(in: spot, of: room.id) else { continue }
             if case .paint(let a, let b) = item.look { paint = (a, b) }
             if case .flooring(let p, let a, let b) = item.look { flooring = (p, a, b) }
+            if case .wood(let a, let b, let glow) = item.look, !item.free { wood = (MathMat.color(a, glow: glow), MathMat.color(b, glow: glow)) }
+            if case .fabric(let a, let glow) = item.look, !item.free { fabric = MathMat.color(a, glow: glow) }
         }
+        let look = Outside(house.state, lit: sky.lit)
+        let lamps = Self.category(room.id)
         let outside = MathMat.color(paint.1), edge = MathMat.color("3f6f9f")
+        // Lamps in here light what's in here.
+        defer { node.enumerateHierarchy { n, _ in n.categoryBitMask = 1 | lamps } }
         // The floor: a slab, with the pattern on top.
         node.add(MathShape.box(S + 0.3, 0.3, S + 0.3, edge), S / 2 - 0.15, -0.15, S / 2 - 0.15)
         let top = MathShape.floor(S, S, HouseProps.floorMaterial(flooring.0, flooring.1, flooring.2))
@@ -437,16 +471,14 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
 
         if closed {
-            Self.outside(of: node, room: room, cell: cell, state: house.state, wall: outside, height: wallH)
-            // A door out onto the top of the stairs.
+            Self.outside(of: node, room: room, cell: cell, state: house.state, look: look, wall: outside, height: wallH)
+            // A door out onto the top of the stairs, the colour of the front one.
             for stairs in Self.stairs(house.state) where stairs.top == cell {
-                let frame = MathMat.color("f6f1e4"), door = MathMat.color("b5483b")
+                let door = HouseProps.door(look.door.color)
                 if stairs.right {
-                    node.add(MathShape.box(0.1, 2.3, 1.3, frame), S + 0.33, 1.15, 0.62)
-                    node.add(MathShape.box(0.1, 2.15, 1.1, door), S + 0.36, 1.08, 0.62)
+                    node.add(door, S + 0.33, 0, 0.62, ry: .pi / 2)
                 } else {
-                    node.add(MathShape.box(1.3, 2.3, 0.1, frame), 0.62, 1.15, S + 0.33)
-                    node.add(MathShape.box(1.1, 2.15, 0.1, door), 0.62, 1.08, S + 0.36)
+                    node.add(door, 0.62, 0, S + 0.33)
                 }
             }
             return node
@@ -454,6 +486,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
         var standing: [String: (at: SCNVector3, top: Float)] = [:]
         for spot in room.spots {
+            // The room's wood and its cloth aren't anywhere in it: they're on everything.
+            if spot.place == .wood || spot.place == .fabric { continue }
             // What hangs on a wall that's down isn't shown, and can only be chosen for from inside.
             if case .wall(let onLeft, _, _) = spot.place, onLeft ? lowLeft : lowRight { continue }
             let key = HouseCatalog.key(room.id, spot.id)
@@ -476,7 +510,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                 // On top of what's in that spot, however tall it is.
                 anchor = (SCNVector3(under.at.x, under.top, under.at.z), 0, SIMD3(under.at.x, under.top + 0.75, under.at.z))
             }
-            if let item, let thing = Self.thing(item) {
+            if let item, let thing = Self.thing(item, sky: sky) {
+                HouseProps.finish(thing, wood: wood, fabric: fabric, lit: sky.lit, category: lamps)
                 standing[spot.id] = (anchor.at, Self.height(item))
                 thing.name = "thing:\(key)"
                 thing.position = anchor.at
@@ -495,17 +530,50 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         return node
     }
 
+    /// How a house looks from outside, as whoever lives there has chosen (HouseCatalog.outside).
+    struct Outside {
+        var roof = MathMat.color("c0574a")
+        var shape = "gable"
+        /// What the walls are clad in; nil, each room its own colour.
+        var cladding: (pattern: String, a: String, b: String)?
+        var door = (color: "b5483b", round: false)
+        /// What's on the roof and on the lawn (a thing built in code), if anything.
+        var top: String?
+        var lawn: String?
+        /// It's dark: the windows are lit, and the lamp by the door.
+        var lit = false
+
+        init(_ state: HouseState, lit: Bool) {
+            self.lit = lit
+            let outside = HouseCatalog.outside
+            for spot in outside.spots {
+                guard let item = state.item(in: spot, of: outside.id) else { continue }
+                switch item.look {
+                case .roof(let hex, let glow): roof = MathMat.color(hex, glow: glow)
+                case .roofShape(let name): shape = name
+                case .cladding(let pattern, let a, let b): cladding = pattern == "rooms" ? nil : (pattern, a, b)
+                case .door(let hex, let round): door = (hex, round)
+                case .made(let key): if spot.id == "top" { top = key } else { lawn = key }
+                default: break
+                }
+            }
+        }
+    }
+
     /// The front of a room seen from the street: walls where nothing's in
     /// front of it, with a window in each, and a roof if nothing's on top.
     /// The front door's on the room nearest the street, on the ground.
-    private static func outside(of node: SCNNode, room: HouseRoom, cell: [Int], state: HouseState, wall: SCNMaterial, height h: Float) {
+    private static func outside(of node: SCNNode, room: HouseRoom, cell: [Int], state: HouseState, look: Outside, wall own: SCNMaterial, height h: Float) {
         let S = HouseCatalog.side
         let garden = room.id == "garden"
         // A wall to the front where nothing's there, or only the garden (it has no roof to hide behind).
         func open(_ c: [Int]) -> Bool { state.room(at: c).map { $0 == "garden" } ?? true }
         let frontX = open([cell[0] + 1, cell[1], cell[2]])
         let frontZ = open([cell[0], cell[1], cell[2] + 1])
-        let glass = MathMat.color("a9d6ef"), frame = MathMat.color("f6f1e4")
+        // The walls as chosen for the whole house, or this room's own colour. (The garden's fence is too low for a pattern.)
+        let wall = look.cladding.map { garden ? MathMat.color($0.a) : HouseProps.cladding($0.pattern, $0.a, $0.b) } ?? own
+        // At night there's a light on in every window.
+        let glass = look.lit ? MathMat.color("ffd98a", glow: 1) : MathMat.color("a9d6ef"), frame = MathMat.color("f6f1e4")
         let door = cell == frontDoor(state)
         if frontX {
             node.add(MathShape.box(0.3, h, S + 0.6, wall), S + 0.15, h / 2, S / 2)
@@ -517,33 +585,61 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         if frontZ {
             node.add(MathShape.box(S + 0.6, h, 0.3, wall), S / 2, h / 2, S + 0.15)
             if door {
-                node.add(MathShape.box(1.3, 2.3, 0.1, frame), S * 0.3, 1.15, S + 0.33)
-                node.add(MathShape.box(1.1, 2.15, 0.1, MathMat.color("b5483b")), S * 0.3, 1.08, S + 0.36)
+                node.add(HouseProps.door(look.door.color, round: look.door.round), S * 0.3, 0, S + 0.33)
                 node.add(MathShape.box(1.5, 0.2, 0.9, MathMat.color("d9d2c0")), S * 0.3, 0.1, S + 0.75)
-                node.add(MathShape.box(1.3, 1.1, 0.1, frame), S * 0.72, h * 0.55, S + 0.33)
-                node.add(MathShape.box(1.1, 0.9, 0.1, glass), S * 0.72, h * 0.55, S + 0.36)
+                if !garden {
+                    node.add(MathShape.box(1.3, 1.1, 0.1, frame), S * 0.72, h * 0.55, S + 0.33)
+                    node.add(MathShape.box(1.1, 0.9, 0.1, glass), S * 0.72, h * 0.55, S + 0.36)
+                    if look.lit { node.add(HouseProps.porchLight(), S * 0.3 + 0.95, 2.05, S + 0.3) }
+                }
             } else if !garden {
                 node.add(MathShape.box(1.5, 1.3, 0.1, frame), S / 2, h * 0.55, S + 0.33)
                 node.add(MathShape.box(1.3, 1.1, 0.1, glass), S / 2, h * 0.55, S + 0.36)
             }
         }
         guard !garden, state.room(at: HouseLayout.above(cell)) == nil else { return }
-        // A lid, and a roof on it: a dome on the observatory, a gable on the rest.
+        // A lid, and a roof on it: a dome on the observatory, and on the rest the roof they've chosen.
         node.add(MathShape.box(S + 0.6, 0.25, S + 0.6, MathMat.color("8a5a44")), S / 2, h + 0.12, S / 2)
         if room.id == "observatory" {
             let dome = MathShape.sphere(S * 0.42, MathMat.color("dfe6ee"), segments: 20)
             node.add(dome, S / 2, h + 0.25, S / 2)
             return
         }
-        let path = UIBezierPath()
-        let half = CGFloat(S / 2 + 0.35)
-        path.move(to: CGPoint(x: -half, y: 0))
-        path.addLine(to: CGPoint(x: half, y: 0))
-        path.addLine(to: CGPoint(x: 0, y: 1.7))
-        path.close()
-        let shape = SCNShape(path: path, extrusionDepth: CGFloat(S + 0.6))
-        shape.materials = [MathMat.color("c0574a")]
-        node.add(SCNNode(geometry: shape), S / 2, h + 0.25, S / 2)
+        node.add(HouseProps.roof(look.shape, look.roof), S / 2, h + 0.25, S / 2)
+    }
+
+    /// The room whose roof has something on it: the highest with a roof of
+    /// its own, and of those the nearest the street.
+    static func crowned(_ state: HouseState) -> [Int]? {
+        state.rooms.filter { !HouseLayout.roofless($0) }.map { state.cell(of: $0) }
+            .filter { $0[1] >= 0 && state.room(at: HouseLayout.above($0)) == nil }
+            .max { ($0[1], $0[0] + $0[2], $0[2]) < ($1[1], $1[0] + $1[2], $1[2]) }
+    }
+
+    /// What a shut house has on its roof and on its lawn, by the front door.
+    private static func trimmings(of root: SCNNode, state: HouseState, look: Outside) {
+        let S = HouseCatalog.side, H = HouseCatalog.height
+        if let key = look.top, let cell = crowned(state) {
+            // A chimney or a dish to one side, up the slope that faces the street; anything on a pole, on the top.
+            let (dx, dz): (Float, Float) = key == "chimney" || key == "dish" ? (0.95, -0.7) : (0, 0)
+            let thing = HouseProps.rooftop(key, rise: HouseProps.rise(look.shape, dx, dz))
+            thing.name = "thing:outside.top"
+            root.add(thing, Float(cell[0]) * S + S / 2 + dx, Float(cell[1]) * H + H + 0.25, Float(cell[2]) * S + S / 2 + dz)
+        }
+        if let key = look.lawn, let door = frontDoor(state) {
+            // On the grass off the front corner, across the screen from whoever's on the step, so neither hides the other.
+            let thing = HouseProps.lawn(key)
+            thing.name = "thing:outside.lawn"
+            let (x, z): (Float, Float) = key == "saucer" ? (S + 1.5, S + 1.7) : (S + 0.5, S + 1.2)
+            root.add(thing, Float(door[0]) * S + x, 0, Float(door[2]) * S + z, ry: .pi / 4)
+        }
+    }
+
+    /// The lights of a room fall on what's in that room, and nowhere else:
+    /// each room has a bit of its own, which its lamps light and its things
+    /// have as well as everyone's (1).
+    private static func category(_ room: String) -> Int {
+        2 << (HouseCatalog.rooms.firstIndex { $0.id == room } ?? 0)
     }
 
     /// Where the front door is: the room on the ground nearest the street.
@@ -566,11 +662,12 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * HouseCatalog.height, Float(cell[2]) * HouseCatalog.side)
     }
 
-    /// Whether a house is open: the one the camera's on.
+    /// Whether a house is open: the one the camera's on, unless it's its outside that's being changed.
     private func open(_ kid: String) -> Bool {
+        guard kid != shut else { return false }
         switch focus {
-        case .street: false
-        case .house(let k), .room(let k, _): k == kid
+        case .street: return false
+        case .house(let k), .room(let k, _): return k == kid
         }
     }
 
@@ -622,6 +719,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         case .walls: return (SCNVector3(0, 0, 0), 0, SIMD3(0.3, H - 0.45, 3.5))
         case .flooring: return (SCNVector3(0, 0, 0), 0, SIMD3(0.9, 0.3, 3.8))
         case .pet(let x, let z): return (SCNVector3(x, 0, z), .pi / 4, SIMD3(x, 0.9, z))
+        case .wood, .fabric, .outside: return (SCNVector3(0, 0, 0), 0, SIMD3(0, 0, 0))
         }
     }
 
@@ -645,7 +743,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
     }
 
-    private static func thing(_ item: HouseItem) -> SCNNode? {
+    private static func thing(_ item: HouseItem, sky: HouseSky) -> SCNNode? {
         switch item.look {
         case .kit(let name, _):
             let node = HouseProps.kit(name)
@@ -662,9 +760,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         case .pet(let name): return HouseProps.pet(name)
         case .rug(let p, let a, let b): return HouseProps.rug(p, a, b)
         case .art(let key, let a, let b): return HouseProps.art(key, a, b)
-        case .window(let kind): return HouseProps.window(kind)
+        case .window(let kind): return HouseProps.window(kind, sky.outlook)
         case .made(let key): return HouseProps.made(key)
-        case .paint, .flooring: return nil
+        case .paint, .flooring, .wood, .fabric, .roof, .roofShape, .cladding, .door: return nil
         }
     }
 
@@ -707,7 +805,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
         switch focus {
         case .street: return houses.flatMap { whole($0, sign: true) }
-        case .house(let kid): return houses.filter { $0.kid == kid }.flatMap { whole($0, sign: false) }
+        // (Shut, for its outside to be changed: the roof's part of what's looked at.)
+        case .house(let kid): return houses.filter { $0.kid == kid }.flatMap { whole($0, sign: kid == shut) }
         case .room(let kid, let id):
             guard let house = houses.first(where: { $0.kid == kid }), house.state.has(room: id) else { return corners(.street) }
             return box(house, house.state.cell(of: id), pad: 0.35)
@@ -798,7 +897,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         changed?()
     }
 
-    private func set(_ new: Focus, rebuilding: Bool = false) {
+    private func set(_ new: Focus, rebuilding: Bool = false, fading: Bool = false) {
         guard new != focus || rebuilding else { return }
         let was = focus
         func kid(_ focus: Focus) -> String? {
@@ -811,7 +910,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         // The floor picked was of the house they were in.
         if kid(was) != kid(new) { floor = nil }
         // Going between rooms moves who lives there, the walls and the markers.
-        for house in houses where house.kid == kid(was) || house.kid == kid(new) { update(house, fading: was != new) }
+        for house in houses where house.kid == kid(was) || house.kid == kid(new) { update(house, fading: was != new || fading) }
         tidy()
         changed?()
     }
@@ -866,18 +965,26 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     /// A card's come up for a spot: its room goes up into what's left of the
     /// screen, and stays in focus whatever's done until the card's gone.
+    ///
+    /// For a spot outside (HouseCatalog.outside) it's the whole house that
+    /// goes up, shut, so the roof and the walls are there to see.
     func lift(_ kid: String, _ room: String, spot: String) {
         let key = HouseCatalog.key(room, spot)
+        let outside = room == HouseCatalog.outside.id
         let rebuilding = chosen != key
         chosen = key
-        if !lifted || focus != .room(kid, room) {
+        let to = outside ? Focus.house(kid) : .room(kid, room), shutting = outside ? kid : nil
+        if !lifted || focus != to || shut != shutting {
             if !lifted { beforeLift = (roam, roam) }
             lifted = true
-            set(.room(kid, room), rebuilding: rebuilding)
-            if let eye = framing(.room(kid, room), lifted: true) { roam = roam(for: eye) }
+            let turned = shut != shutting
+            shut = shutting
+            set(to, rebuilding: rebuilding || turned, fading: turned)
+            if let eye = framing(to, lifted: true) { roam = roam(for: eye) }
             beforeLift?.put = roam
             look(animated: true)
-        } else if rebuilding, let house = houses.first(where: { $0.kid == kid }) {
+        } else if rebuilding, !outside, let house = houses.first(where: { $0.kid == kid }) {
+            // (Outside there are no markers to move: nothing to build again.)
             update(house)
         }
         changed?()
@@ -889,6 +996,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         guard lifted else { return }
         lifted = false
         chosen = nil
+        let wasShut = shut != nil
+        shut = nil
         if let beforeLift, beforeLift.put == roam {
             roam = beforeLift.was
         } else {
@@ -896,7 +1005,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
         beforeLift = nil
         look(animated: true)
-        for house in houses where house.mine { update(house) }
+        for house in houses where house.mine { update(house, fading: wasShut) }
         settle()
         changed?()
     }
@@ -931,9 +1040,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         // Underground: no grass or trees, just earth round the basement.
         ground.isHidden = under
         trees?.isHidden = under
-        scene.background.contents = under ? UIColor(red: 0.45, green: 0.33, blue: 0.24, alpha: 1) : Self.sky
+        scene.background.contents = under ? UIColor(red: 0.45, green: 0.33, blue: 0.24, alpha: 1) : sky.picture
         for (kid, node) in nodes {
-            node.childNode(withName: "label", recursively: false)?.isHidden = open(kid)
+            node.childNode(withName: "label", recursively: false)?.isHidden = open(kid) || shut == kid
             node.childNode(withName: "yard", recursively: false)?.isHidden = under
             node.childNode(withName: "stairs", recursively: false)?.isHidden = under
             node.isHidden = under && !open(kid)
