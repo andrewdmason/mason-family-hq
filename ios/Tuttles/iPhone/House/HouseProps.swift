@@ -5,7 +5,13 @@ import UIKit
 // and the pets his Cube Pets (public domain: see MathAssets/models/CREDITS.txt),
 // loaded the way Math loads its models. Everything flat (rugs, floors,
 // pictures, windows) is drawn here in code, and so are the few things no kit
-// has: the arcade cabinet, the telescope, the door in the basement.
+// has: the arcade cabinet, the telescope, the door in the basement. So is the
+// outside of the house: its roof, what its walls are clad in, its front door,
+// and what's on the roof and the lawn.
+//
+// A kit model's parts are named for what they're made of ("wood", "carpet",
+// "lamp"), which is how a room's wood and cloth can be any colour, and how a
+// lamp can be on (`finish`).
 
 enum HouseProps {
     /// The furniture kit is made small: this is what it's grown by to suit a room four metres across.
@@ -108,6 +114,61 @@ enum HouseProps {
                                       .rotateBy(x: 0, y: .pi / 2, z: 0, duration: 0.3)])
         holder.runAction(.repeatForever(hop))
         return wrap
+    }
+
+    // MARK: Wood, cloth and lamps
+
+    private static var refinished: [String: SCNGeometry] = [:]
+
+    /// A part's shape in another material. (A model's copies share their shapes, so the part gets one of its own.)
+    private static func part(_ geometry: SCNGeometry, in material: SCNMaterial) -> SCNGeometry {
+        let key = "\(ObjectIdentifier(geometry).hashValue)|\(ObjectIdentifier(material).hashValue)"
+        if let hit = refinished[key] { return hit }
+        guard let made = geometry.copy() as? SCNGeometry else { return geometry }
+        made.materials = [material]
+        refinished[key] = made
+        return made
+    }
+
+    /// The shade of a lamp that's on.
+    private static let shade = MathMat.color("ffe9a0", glow: 1)
+
+    /// Make a thing its room's own: its wood and its cloth the colours
+    /// chosen (nil: as the kit has them), and, `lit`, its lamp on. Whatever
+    /// light it gives falls only on what's in `category`, the room it's in,
+    /// so a house full of lamps is no more for any one thing to be lit by.
+    static func finish(_ thing: SCNNode, wood: (main: SCNMaterial, dark: SCNMaterial)?, fabric: SCNMaterial?, lit: Bool, category: Int) {
+        var lo = SIMD3<Float>(repeating: .greatestFiniteMagnitude), hi = -lo, lamp = false
+        func walk(_ node: SCNNode, _ space: simd_float4x4) {
+            if let geometry = node.geometry, let name = geometry.firstMaterial?.name {
+                switch name {
+                case "wood": if let wood { node.geometry = part(geometry, in: wood.main) }
+                case "woodDark": if let wood { node.geometry = part(geometry, in: wood.dark) }
+                case "carpet", "carpetBlue": if let fabric { node.geometry = part(geometry, in: fabric) }
+                case "lamp":
+                    guard lit else { break }
+                    if let (l, h) = extent(of: node, in: space) { lo = simd_min(lo, l); hi = simd_max(hi, h); lamp = true }
+                    node.geometry = part(geometry, in: shade)
+                default: break
+                }
+            }
+            let here = space * node.simdTransform
+            for child in node.childNodes { walk(child, here) }
+        }
+        for child in thing.childNodes { walk(child, matrix_identity_float4x4) }
+        if lamp {
+            let light = SCNNode()
+            light.light = SCNLight()
+            light.light?.type = .omni
+            light.light?.color = UIColor(red: 1, green: 0.8, blue: 0.52, alpha: 1)
+            light.light?.intensity = 950
+            light.light?.attenuationStartDistance = 0.8
+            light.light?.attenuationEndDistance = 6
+            light.simdPosition = (lo + hi) / 2
+            thing.addChildNode(light)
+        }
+        // And what light it had already: a campfire's, a bare bulb's.
+        thing.enumerateHierarchy { node, _ in node.light?.categoryBitMask = category }
     }
 
     // MARK: Drawing
@@ -415,11 +476,14 @@ enum HouseProps {
         return holder
     }
 
-    /// A window, facing +z: a frame, and whatever's through it.
-    static func window(_ kind: String) -> SCNNode {
+    /// A window, facing +z: a frame, and whatever's through it, which for
+    /// most is the weather and the time of day outside.
+    static func window(_ kind: String, _ outlook: HouseSky.Outlook = .day) -> SCNNode {
         let round = kind == "round" || kind == "sea"
         let w: Float = kind == "wide" ? 2.3 : round ? 1.1 : 1.3, h: Float = round ? 1.1 : 1.35
-        let material = MathMat.drawn("house-window-\(kind)", 256, 256, glow: kind == "night" ? 0.5 : 0.35, clear: round) { c, size in
+        // (The night window and the porthole show what they show whatever the hour.)
+        let time = kind == "night" || kind == "sea" ? HouseSky.Outlook.day : outlook
+        let material = MathMat.drawn("house-window-\(kind)-\(time.rawValue)", 256, 256, glow: kind == "night" ? 0.5 : 0.35, clear: round) { c, size in
             let W = size.width, H = size.height
             if round { c.addEllipse(in: CGRect(origin: .zero, size: size)); c.clip() }
             switch kind {
@@ -428,20 +492,32 @@ enum HouseProps {
                 for p in scatter(50, seed: 13) { disc(c, "fff3b0", p.0 * W, p.1 * H, 1 + p.2 * 3) }
                 disc(c, "fff7d6", W * 0.72, H * 0.26, 26); disc(c, "0d1230", W * 0.66, H * 0.22, 22)
             case "frosted":
-                c.fill("dfeef2", CGRect(origin: .zero, size: size))
-                disc(c, "b9cfd6", W * 0.4, H * 0.7, 60); disc(c, "c9dde3", W * 0.66, H * 0.5, 40)
+                c.fill(time == .day ? "dfeef2" : time == .dusk ? "e9c3a6" : "3d4a66", CGRect(origin: .zero, size: size))
+                disc(c, time == .day ? "b9cfd6" : time == .dusk ? "c99a84" : "2c3750", W * 0.4, H * 0.7, 60)
+                disc(c, time == .day ? "c9dde3" : time == .dusk ? "d9ad94" : "34405a", W * 0.66, H * 0.5, 40)
             case "sea":
                 c.fill("1f6f9c", CGRect(origin: .zero, size: size))
                 c.fill("12506f", CGRect(x: 0, y: H * 0.55, width: W, height: H * 0.45))
                 for p in scatter(12, seed: 17) { disc(c, "9fe0ff", p.0 * W, p.1 * H, 4 + p.2 * 6) }
                 c.addEllipse(in: CGRect(x: W * 0.3, y: H * 0.5, width: W * 0.36, height: H * 0.16)); c.setFillColor(ui("0a2f44").cgColor); c.fillPath()
             default:
-                c.fill("9fd6f2", CGRect(origin: .zero, size: size))
-                disc(c, "ffffff", W * 0.3, H * 0.3, 28); disc(c, "ffffff", W * 0.42, H * 0.34, 22); disc(c, "ffffff", W * 0.75, H * 0.2, 18)
-                c.fill("7cbf5a", CGRect(x: 0, y: H * 0.72, width: W, height: H * 0.28))
+                // The sky, what's in it, and the grass, for the time of day.
+                let night = time == .night
+                c.fill(time == .day ? "9fd6f2" : night ? "0d1230" : "f2a56c", CGRect(origin: .zero, size: size))
+                if time == .dusk { c.fill("8f6fa8", CGRect(x: 0, y: 0, width: W, height: H * 0.22)); c.fill("c98a9a", CGRect(x: 0, y: H * 0.22, width: W, height: H * 0.14)) }
+                if night {
+                    for p in scatter(40, seed: 19) { disc(c, "fff3b0", p.0 * W, p.1 * H * 0.7, 1 + p.2 * 2.5) }
+                    disc(c, "fff7d6", W * 0.26, H * 0.24, 22); disc(c, "0d1230", W * 0.21, H * 0.2, 19)
+                } else {
+                    let cloud = time == .day ? "ffffff" : "ffd9c2"
+                    disc(c, cloud, W * 0.3, H * 0.3, 28); disc(c, cloud, W * 0.42, H * 0.34, 22); disc(c, cloud, W * 0.75, H * 0.2, 18)
+                }
+                c.fill(time == .day ? "7cbf5a" : night ? "24482f" : "6a9a4a", CGRect(x: 0, y: H * 0.72, width: W, height: H * 0.28))
                 if kind == "wide" {
-                    // The other house, over there.
-                    c.fill("f3ead2", CGRect(x: W * 0.6, y: H * 0.5, width: W * 0.2, height: H * 0.24)); poly(c, "c1502e", [(W * 0.57, H * 0.5), (W * 0.7, H * 0.38), (W * 0.83, H * 0.5)])
+                    // The other house, over there; at night, with a light on.
+                    c.fill(night ? "4a4f66" : "f3ead2", CGRect(x: W * 0.6, y: H * 0.5, width: W * 0.2, height: H * 0.24))
+                    poly(c, night ? "5a2f2a" : "c1502e", [(W * 0.57, H * 0.5), (W * 0.7, H * 0.38), (W * 0.83, H * 0.5)])
+                    if night { c.fill("ffd27a", CGRect(x: W * 0.66, y: H * 0.56, width: W * 0.07, height: H * 0.08)) }
                 }
             }
         }
@@ -609,6 +685,295 @@ enum HouseProps {
         return n
     }
 
+    // MARK: Outside the house
+
+    /// What the walls are clad in outside, drawn for one whole face of a wall.
+    static func cladding(_ pattern: String, _ a: String, _ b: String) -> SCNMaterial {
+        MathMat.drawn("house-clad-\(pattern)-\(a)-\(b)", 512, 356) { c, size in
+            let W = size.width, H = size.height
+            c.fill(a, CGRect(origin: .zero, size: size))
+            switch pattern {
+            case "brick":
+                c.fill(b, CGRect(origin: .zero, size: size))
+                let rows = 12, across = 7
+                let h = H / CGFloat(rows), w = W / CGFloat(across)
+                for r in 0..<rows { for i in -1..<across {
+                    let x = (CGFloat(i) + (r % 2 == 0 ? 0 : 0.5)) * w
+                    c.fill(a, CGRect(x: x + 2, y: CGFloat(r) * h + 2, width: w - 4, height: h - 4))
+                    // Not all quite the same.
+                    if (r * 3 + i * 5) % 4 == 0 { c.setFillColor(UIColor.black.withAlphaComponent(0.1).cgColor); c.fill(CGRect(x: x + 2, y: CGFloat(r) * h + 2, width: w - 4, height: h - 4)) }
+                } }
+            case "stone":
+                c.fill(b, CGRect(origin: .zero, size: size))
+                let rows = 6, h = H / CGFloat(rows)
+                var rng = MathRNG(seed: 37)
+                for r in 0..<rows {
+                    var x: CGFloat = r % 2 == 0 ? 0 : -40
+                    while x < W {
+                        let w = 60 + CGFloat(rng.unit()) * 70
+                        c.addPath(UIBezierPath(roundedRect: CGRect(x: x + 3, y: CGFloat(r) * h + 3, width: w - 6, height: h - 6), cornerRadius: 12).cgPath)
+                        c.setFillColor(ui(a).cgColor); c.fillPath()
+                        if rng.chance(0.35) {
+                            c.addPath(UIBezierPath(roundedRect: CGRect(x: x + 3, y: CGFloat(r) * h + 3, width: w - 6, height: h - 6), cornerRadius: 12).cgPath)
+                            c.setFillColor(UIColor.white.withAlphaComponent(0.12).cgColor); c.fillPath()
+                        }
+                        x += w
+                    }
+                }
+            case "stripes":
+                let n = 10
+                for i in 0..<n where i % 2 == 1 { c.fill(b, CGRect(x: CGFloat(i) * W / CGFloat(n), y: 0, width: W / CGFloat(n), height: H)) }
+            default: // boards, one over another
+                stroke(c, b, 5)
+                for i in 1..<9 { let y = CGFloat(i) * H / 9; line(c, [(0, y), (W, y)]) }
+            }
+        }
+    }
+
+    /// How high a roof of this shape is at its top.
+    private static func peak(_ shape: String) -> Float {
+        switch shape {
+        case "steep": 3.0
+        case "pyramid": 2.2
+        case "flat": 0.3
+        default: 1.7
+        }
+    }
+
+    /// A roof for one room, standing on its lid with its middle over the
+    /// origin: two slopes and a ridge running front to back, a pyramid, or a
+    /// flat slab.
+    static func roof(_ shape: String, _ material: SCNMaterial) -> SCNNode {
+        let S = HouseCatalog.side, high = peak(shape)
+        switch shape {
+        case "pyramid":
+            let g = SCNPyramid(width: CGFloat(S + 0.7), height: CGFloat(high), length: CGFloat(S + 0.7))
+            g.materials = [material]
+            return SCNNode(geometry: g)
+        case "flat":
+            let holder = SCNNode()
+            holder.add(MathShape.box(S + 0.8, high, S + 0.8, material), 0, high / 2, 0)
+            return holder
+        default:
+            let path = UIBezierPath()
+            let half = CGFloat(S / 2 + 0.35)
+            path.move(to: CGPoint(x: -half, y: 0))
+            path.addLine(to: CGPoint(x: half, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: CGFloat(high)))
+            path.close()
+            let g = SCNShape(path: path, extrusionDepth: CGFloat(S + 0.6))
+            g.materials = [material]
+            return SCNNode(geometry: g)
+        }
+    }
+
+    /// How far up a roof's top is, this far across and back from its middle.
+    static func rise(_ shape: String, _ dx: Float, _ dz: Float) -> Float {
+        let half = HouseCatalog.side / 2 + 0.35, high = peak(shape)
+        switch shape {
+        case "flat": return high
+        case "pyramid": return max(0, high * (1 - max(abs(dx), abs(dz)) / half))
+        default: return max(0, high * (1 - abs(dx) / half))
+        }
+    }
+
+    /// The front door, facing +z, standing on the origin: its frame, the door, and a knob. Or a round one.
+    static func door(_ hex: String, round: Bool = false) -> SCNNode {
+        let n = SCNNode()
+        let frame = MathMat.color("f6f1e4"), knob = MathMat.color("f5c542", glow: 0.3)
+        if round {
+            let ring = MathShape.cylinder(1.12, 0.1, frame, segments: 28)
+            ring.eulerAngles.x = .pi / 2
+            n.add(ring, 0, 1.12, 0)
+            let leaf = MathShape.cylinder(0.98, 0.1, MathMat.color(hex), segments: 28)
+            leaf.eulerAngles.x = .pi / 2
+            n.add(leaf, 0, 1.12, 0.03)
+            // The knob's in the middle, as it should be.
+            n.add(MathShape.sphere(0.09, knob, segments: 10), 0, 1.12, 0.1)
+        } else {
+            n.add(MathShape.box(1.3, 2.3, 0.1, frame), 0, 1.15, 0)
+            n.add(MathShape.box(1.1, 2.15, 0.1, MathMat.color(hex)), 0, 1.08, 0.03)
+            n.add(MathShape.sphere(0.06, knob, segments: 10), 0.38, 1.05, 0.1)
+        }
+        return n
+    }
+
+    /// A lantern by the front door, on at night, facing +z.
+    static func porchLight() -> SCNNode {
+        let n = SCNNode()
+        n.add(MathShape.box(0.2, 0.06, 0.2, MathMat.color("20242c")), 0, 0.17, 0.1)
+        n.add(MathShape.box(0.16, 0.26, 0.16, MathMat.color("ffe9a0", glow: 1)), 0, 0, 0.1)
+        let light = SCNNode()
+        light.light = SCNLight()
+        light.light?.type = .omni
+        light.light?.color = UIColor(red: 1, green: 0.8, blue: 0.52, alpha: 1)
+        light.light?.intensity = 380
+        light.light?.attenuationStartDistance = 0.6
+        light.light?.attenuationEndDistance = 6
+        n.add(light, 0, -0.2, 1.1)
+        return n
+    }
+
+    /// Something on the roof, standing on the roof's lid at the origin.
+    /// `rise` is how far up the roof's own top is there: a chimney comes up
+    /// through it, and anything on a pole stands on it.
+    static func rooftop(_ key: String, rise: Float) -> SCNNode {
+        let n = SCNNode()
+        let white = MathMat.color("f6f1e4"), dark = MathMat.color("20242c")
+        switch key {
+        case "chimney":
+            let tall = rise + 0.9
+            n.add(MathShape.box(0.7, tall, 0.7, MathMat.color("a8553f")), 0, tall / 2, 0)
+            n.add(MathShape.box(0.86, 0.14, 0.86, MathMat.color("6b4a3a")), 0, tall + 0.07, 0)
+            // Smoke: three puffs, one after another, going up and thinning out.
+            for i in 0..<3 {
+                let puff = MathShape.sphere(0.2, MathMat.color("e9e6e0", alpha: 0.8), segments: 10)
+                puff.castsShadow = false
+                puff.opacity = 0
+                n.add(puff, 0, tall + 0.2, 0)
+                let up = SCNAction.group([.moveBy(x: 0.5, y: 1.9, z: -0.2, duration: 3.6), .scale(to: 2.2, duration: 3.6),
+                                          .sequence([.fadeOpacity(to: 0.8, duration: 0.5), .fadeOpacity(to: 0, duration: 3.1)])])
+                let back = SCNAction.group([.move(to: SCNVector3(0, tall + 0.2, 0), duration: 0), .scale(to: 1, duration: 0)])
+                puff.runAction(.sequence([.wait(duration: Double(i) * 1.2), .repeatForever(.sequence([up, back]))]))
+            }
+        case "flag":
+            n.add(MathShape.cylinder(0.04, 2.3, white, segments: 8), 0, rise + 1.05, 0)
+            n.add(MathShape.sphere(0.08, MathMat.color("f5c542", glow: 0.3), segments: 8), 0, rise + 2.22, 0)
+            let cloth = SCNNode()
+            cloth.add(MathShape.box(0.95, 0.6, 0.03, MathMat.color("d6263a")), 0.5, 0, 0)
+            cloth.add(MathShape.box(0.3, 0.6, 0.04, MathMat.color("f5c542")), 0.19, 0, 0)
+            n.add(cloth, 0, rise + 1.82, 0)
+            // In a little wind.
+            cloth.eulerAngles.y = 0.5
+            let wave = SCNAction.sequence([.rotateTo(x: 0, y: 0.75, z: 0, duration: 1.4), .rotateTo(x: 0, y: 0.4, z: 0, duration: 1.7)])
+            wave.timingMode = .easeInEaseOut
+            cloth.runAction(.repeatForever(wave))
+        case "vane":
+            n.add(MathShape.cylinder(0.035, 1.3, dark, segments: 8), 0, rise + 0.6, 0)
+            for (i, turn) in [Float(0), .pi / 2].enumerated() {
+                let arm = MathShape.box(0.9, 0.035, 0.035, dark)
+                arm.eulerAngles.y = turn
+                n.add(arm, 0, rise + 0.85, 0)
+                for end: Float in [-0.45, 0.45] { n.add(MathShape.sphere(0.055, dark, segments: 8), i == 0 ? end : 0, rise + 0.85, i == 0 ? 0 : end) }
+            }
+            let arrow = SCNNode()
+            let gold = MathMat.color("f5c542", glow: 0.25)
+            arrow.add(MathShape.box(1.0, 0.05, 0.04, gold), 0, 0, 0)
+            let tip = MathShape.cone(0.12, 0, 0.26, gold, segments: 8)
+            tip.eulerAngles.z = -.pi / 2
+            arrow.add(tip, 0.6, 0, 0)
+            arrow.add(MathShape.box(0.26, 0.26, 0.03, gold), -0.48, 0, 0)
+            n.add(arrow, 0, rise + 1.25, 0)
+            // It swings to somewhere new now and then, and settles.
+            var rng = MathRNG(seed: 91)
+            var turns: [SCNAction] = []
+            for _ in 0..<6 {
+                let to = CGFloat(rng.range(-.pi, .pi))
+                let swing = SCNAction.rotateTo(x: 0, y: to, z: 0, duration: 1.6, usesShortestUnitArc: true)
+                swing.timingMode = .easeInEaseOut
+                turns += [swing, .wait(duration: Double(rng.range(3, 8)))]
+            }
+            arrow.runAction(.repeatForever(.sequence(turns)))
+        case "dish":
+            n.add(MathShape.cylinder(0.045, rise + 0.7, dark, segments: 8), 0, (rise + 0.7) / 2, 0)
+            let dish = SCNNode()
+            dish.add(MathShape.cone(0.06, 0.55, 0.22, MathMat.color("dfe6ee"), segments: 20), 0, 0, 0)
+            dish.add(MathShape.cylinder(0.02, 0.45, dark, segments: 6), 0, 0.3, 0)
+            dish.add(MathShape.sphere(0.06, MathMat.color("d6263a"), segments: 8), 0, 0.52, 0)
+            // Tipped up at the sky, towards the other house.
+            dish.eulerAngles = SCNVector3(0.9, 0, -0.5)
+            n.add(dish, 0, rise + 0.85, 0)
+        case "beacon":
+            n.add(MathShape.cylinder(0.3, 0.6, white, segments: 16), 0, rise + 0.3, 0)
+            n.add(MathShape.cylinder(0.31, 0.16, MathMat.color("d6263a"), segments: 16), 0, rise + 0.3, 0)
+            n.add(MathShape.cylinder(0.24, 0.42, MathMat.color("ffe9a0", glow: 1), segments: 16), 0, rise + 0.81, 0)
+            n.add(MathShape.cone(0.34, 0, 0.3, MathMat.color("d6263a"), segments: 16), 0, rise + 1.17, 0)
+            // The light going round: a beam out each side.
+            let beams = SCNNode()
+            for side: Float in [-1, 1] {
+                let beam = MathShape.cone(0.06, 0.5, 3.2, MathMat.color("ffe9a0", glow: 1, alpha: 0.32), segments: 12)
+                beam.castsShadow = false
+                beam.eulerAngles.z = side * .pi / 2
+                beams.add(beam, side * -1.8, 0, 0)
+            }
+            n.add(beams, 0, rise + 0.81, 0)
+            beams.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 7)))
+        default: break
+        }
+        return n
+    }
+
+    /// Something on the front lawn, standing on the origin and facing +z.
+    static func lawn(_ key: String) -> SCNNode {
+        let n = SCNNode()
+        switch key {
+        case "mailbox":
+            n.add(MathShape.box(0.1, 1.0, 0.1, MathMat.color("8a5a3a")), 0, 0.5, 0)
+            n.add(MathShape.box(0.3, 0.28, 0.58, MathMat.color("2f5f9a"), round: 0.08), 0, 1.1, 0.04)
+            n.add(MathShape.box(0.03, 0.2, 0.1, MathMat.color("d6263a")), 0.17, 1.22, 0.1)
+            n.add(MathShape.box(0.24, 0.2, 0.02, MathMat.color("1f4470")), 0, 1.1, 0.335)
+        case "snowman":
+            let snow = MathMat.color("f8fbff"), coal = MathMat.color("20242c"), twig = MathMat.color("6b4a2f")
+            n.add(MathShape.sphere(0.44, snow, segments: 16), 0, 0.4, 0)
+            n.add(MathShape.sphere(0.32, snow, segments: 16), 0, 1.0, 0)
+            n.add(MathShape.sphere(0.22, snow, segments: 14), 0, 1.45, 0)
+            n.add(MathShape.cylinder(0.26, 0.09, MathMat.color("d6263a"), segments: 14), 0, 1.26, 0)
+            for x: Float in [-0.08, 0.08] { n.add(MathShape.sphere(0.03, coal, segments: 8), x, 1.5, 0.19) }
+            let nose = MathShape.cone(0.045, 0, 0.24, MathMat.color("f08a3c"), segments: 8)
+            nose.eulerAngles.x = .pi / 2
+            n.add(nose, 0, 1.44, 0.3)
+            for y: Float in [0.88, 1.02] { n.add(MathShape.sphere(0.035, coal, segments: 8), 0, y, 0.31) }
+            n.add(MathShape.cylinder(0.27, 0.03, coal, segments: 14), 0, 1.64, 0)
+            n.add(MathShape.cylinder(0.17, 0.26, coal, segments: 14), 0, 1.78, 0)
+            for side: Float in [-1, 1] {
+                let arm = MathShape.cylinder(0.02, 0.6, twig, segments: 6)
+                arm.eulerAngles.z = side * 1.0
+                n.add(arm, side * 0.5, 1.15, 0)
+            }
+        case "flamingos":
+            func flamingo() -> SCNNode {
+                let bird = SCNNode()
+                let pink = MathMat.color("f47aa8")
+                bird.add(MathShape.cylinder(0.018, 0.75, MathMat.color("e0608f"), segments: 6), 0, 0.375, 0)
+                bird.add(MathShape.sphere(0.2, pink, segments: 12), 0, 0.85, 0).scale = SCNVector3(0.8, 0.7, 1.25)
+                let neck = MathShape.cylinder(0.04, 0.5, pink, segments: 8)
+                neck.eulerAngles.x = 0.35
+                bird.add(neck, 0, 1.12, 0.26)
+                bird.add(MathShape.sphere(0.075, pink, segments: 10), 0, 1.36, 0.36)
+                let beak = MathShape.cone(0.04, 0.01, 0.16, MathMat.color("20242c"), segments: 8)
+                beak.eulerAngles.x = 2.0
+                bird.add(beak, 0, 1.31, 0.46)
+                return bird
+            }
+            n.add(flamingo(), -0.35, 0, 0, ry: 0.5)
+            n.add(flamingo().scaled(0.85), 0.4, 0, 0.25, ry: -0.6)
+        case "saucer":
+            let hull = MathMat.color("b9c2cc")
+            for i in 0..<3 {
+                let t = Float(i) * .pi * 2 / 3
+                let leg = MathShape.cylinder(0.035, 0.75, MathMat.color("6b7078"), segments: 6)
+                leg.eulerAngles = SCNVector3(0.4 * cos(t), 0, -0.4 * sin(t))
+                n.add(leg, sin(t) * 0.55, 0.33, cos(t) * 0.55)
+            }
+            let craft = SCNNode()
+            craft.add(MathShape.sphere(1.0, hull, segments: 24), 0, 0, 0).scale = SCNVector3(1, 0.2, 1)
+            craft.add(MathShape.sphere(0.42, MathMat.color("9fe8ff", glow: 0.35, alpha: 0.75), segments: 16), 0, 0.14, 0)
+            for i in 0..<8 {
+                let t = Float(i) * .pi / 4
+                craft.add(MathShape.sphere(0.07, MathMat.color(i % 2 == 0 ? "7dff3a" : "ffe14a", glow: 1), segments: 8), cos(t) * 0.82, 0.05, sin(t) * 0.82)
+            }
+            n.add(craft, 0, 0.78, 0)
+            // Parked, but not switched off.
+            craft.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 14)))
+            let hum = MathShape.cylinder(0.55, 0.02, MathMat.color("7dff3a", glow: 1, alpha: 0.3), segments: 20)
+            hum.castsShadow = false
+            n.add(hum, 0, 0.03, 0)
+            hum.runAction(.repeatForever(.sequence([.fadeOpacity(to: 0.25, duration: 1.6), .fadeOpacity(to: 1, duration: 1.6)])))
+        default: break
+        }
+        return n
+    }
+
     // MARK: Signs
 
     // MARK: Stairs
@@ -768,6 +1133,11 @@ extension HouseSpot {
         case .rug: return id == "pond" ? "drop.fill" : "square.dashed"
         case .wall: return "photo.fill"
         case .on: return "fork.knife"
+        case .wood: return "hammer.fill"
+        case .fabric: return "swatchpalette.fill"
+        case .outside:
+            return ["roof": "house.fill", "shape": "triangle.fill", "walls": "paintbrush.fill", "door": "door.left.hand.closed",
+                    "top": "flag.fill", "lawn": "leaf.fill"][id] ?? "plus"
         case .floor, .against: break
         }
         return [

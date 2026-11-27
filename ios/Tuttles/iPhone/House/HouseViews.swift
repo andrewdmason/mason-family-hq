@@ -20,7 +20,11 @@ import SwiftUI
 // of more than one floor can be looked at a floor at a time, from a picker
 // up the right edge. The other house, and Mom & Dad's, can be looked round and not touched:
 // in a room of it, whose room it is is said at the top. The parents see the
-// street the same way, and what each purse has had paid in.
+// street the same way, and what each purse has had paid in. With their house
+// in view and no room in focus, the red button is "Decorate outside": the
+// roof, the walls, the door, what's on the roof and the lawn, with the house
+// shut while the card's up. And the street keeps the time of day
+// (HouseSky.swift), looked at again every minute.
 
 /// Coins and gems, wherever they're shown: a pill each, or, in a bar, the
 /// two together with the bar's own glass round them.
@@ -331,9 +335,21 @@ struct HouseHomeView: View {
             if let at = args.firstIndex(of: "--house-room") {
                 let id = args.count > at + 1 && HouseCatalog.room(args[at + 1]) != nil ? args[at + 1] : HouseCatalog.first
                 if house.state.has(room: id) { go(.room(me, id), animated: false) }
+                if args.contains("--house-decorate") { decorate() }
+            }
+            if args.contains("--house-outside") {
+                go(.house(me), animated: false)
+                decorate()
             }
             await house.sync(with: store)
             show()
+        }
+        // The time of day, as the phone's clock has it, looked at again each minute.
+        .task {
+            while !Task.isCancelled {
+                stage.setSky(Self.sky())
+                try? await Task.sleep(for: .seconds(60))
+            }
         }
         // A drag moves the town, so it doesn't also slide the menu out (the ☰ still opens it).
         .onAppear { menu?.locked = true }
@@ -469,9 +485,19 @@ struct HouseHomeView: View {
         MathAudio.shared.play("tap", volume: 0.4)
     }
 
-    /// Decorate: the card, for the room they're in, on the first spot that's still as it came.
+    /// Decorate: the card, for the room they're in, on the first spot that's still as it came. With their
+    /// house in view and no room in focus, it's for the outside of it.
     private func decorate() {
-        guard case .room(let kid, let id) = focus, mine(focus), let room = HouseCatalog.room(id) else { return }
+        guard mine(focus) else { return }
+        let kid: String, room: HouseRoom
+        switch focus {
+        case .street: return
+        case .house(let k): (kid, room) = (k, HouseCatalog.outside)
+        case .room(let k, let id):
+            guard let found = HouseCatalog.room(id) else { return }
+            (kid, room) = (k, found)
+        }
+        let id = room.id
         let spots = house.state.spots(of: room)
         guard let spot = spots.first(where: { house.state.untouched($0, of: id) }) ?? spots.first else { return }
         choose(kid, room, spot)
@@ -689,9 +715,9 @@ struct HouseHomeView: View {
                 }
                 .glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
                 Spacer(minLength: 8)
-                if case .room(_, let id) = focus, mine(focus), let room = HouseCatalog.room(id) {
+                if let what = decorating {
                     Button { decorate() } label: {
-                        Label("Decorate \(room.name.lowercased())", systemImage: "paintbrush.fill")
+                        Label("Decorate \(what)", systemImage: "paintbrush.fill")
                             .font(.system(.headline, design: .rounded).weight(.heavy))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -706,7 +732,27 @@ struct HouseHomeView: View {
         .padding(.horizontal, 16)
     }
 
+    /// What the red button would decorate: the room of theirs in focus, or, with their house in view and
+    /// no room in focus, the outside of it. Nil when it's neither (the button isn't there).
+    private var decorating: String? {
+        guard mine(focus) else { return nil }
+        switch focus {
+        case .street: return nil
+        case .house: return "outside"
+        case .room(_, let id): return HouseCatalog.room(id)?.name.lowercased()
+        }
+    }
+
     // MARK: For the simulator
+
+    /// The time of day over the street: the phone's clock, or with `--house-hour 21.5` half past nine at night.
+    private static func sky() -> HouseSky {
+        let args = CommandLine.arguments
+        if let at = args.firstIndex(of: "--house-hour"), args.count > at + 1, let hour = Double(args[at + 1]) {
+            return .at(hour: hour, dayOfYear: Calendar.current.ordinality(of: .day, in: .year, for: Date()) ?? 172)
+        }
+        return .at(Date())
+    }
 
     /// `--house-coins 50000 --house-gems 40`, and in the demo a brother's house to look at.
     private func demo() {
@@ -719,7 +765,9 @@ struct HouseHomeView: View {
         theirs.settle()
         for id in ["bedroom.bed.bunk", "bedroom.rug.space", "bedroom.desk.screen", "bedroom.left.shark", "bedroom.pet.dog", "bedroom.walls.sky",
                    "living.sofa.long", "living.tv.modern", "living.rug.zigzag", "living.armchair.relax", "kitchen.fridge.large", "kitchen.table.round",
-                   "kitchen.food.cake", "kitchen.floor.diner-checks"] {
+                   "kitchen.food.cake", "kitchen.floor.diner-checks", "bedroom.wood.walnut", "bedroom.fabric.navy", "living.wood.white",
+                   "living.fabric.mustard", "outside.roof.slate", "outside.walls.brick", "outside.door.yellow", "outside.top.chimney",
+                   "outside.lawn.flamingos"] {
             let parts = id.split(separator: ".").map(String.init)
             theirs.owned.append(id)
             theirs.placed["\(parts[0]).\(parts[1])"] = id
