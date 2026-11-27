@@ -169,7 +169,7 @@ struct HouseSceneView: UIViewRepresentable {
     let tapped: (HouseStage.Hit?) -> Void
 
     /// A finger drags the town about and two pinch it closer, wherever it's looked at from.
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: HouseSceneView
         /// Where the two fingers were, between them, the last time they moved.
         private var between: CGPoint?
@@ -181,9 +181,26 @@ struct HouseSceneView: UIViewRepresentable {
         }
 
         @objc func dragged(_ g: UIPanGestureRecognizer) {
-            guard let view = g.view, g.state == .changed else { return }
+            guard let view = g.view as? SCNView else { return }
+            if parent.stage.held != nil {
+                // A room in hand goes where the finger is.
+                if g.state == .began || g.state == .changed { parent.stage.carry(to: g.location(in: view), in: view) }
+                return
+            }
+            guard g.state == .changed else { return }
             parent.stage.drag(by: g.translation(in: view), height: view.bounds.height)
             g.setTranslation(.zero, in: view)
+        }
+
+        @objc func twisted(_ g: UIRotationGestureRecognizer) {
+            guard g.state == .changed else { return }
+            parent.stage.twist(by: g.rotation)
+            g.rotation = 0
+        }
+
+        /// Two fingers pinch and turn at once.
+        func gestureRecognizer(_ a: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith b: UIGestureRecognizer) -> Bool {
+            (a is UIPinchGestureRecognizer || a is UIRotationGestureRecognizer) && (b is UIPinchGestureRecognizer || b is UIRotationGestureRecognizer)
         }
 
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
@@ -216,7 +233,11 @@ struct HouseSceneView: UIViewRepresentable {
         let drag = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dragged(_:)))
         drag.maximumNumberOfTouches = 1
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
-        for g in [drag, pinch] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
+        let twist = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.twisted(_:)))
+        for g in [drag, pinch, twist] as [UIGestureRecognizer] {
+            g.delegate = context.coordinator
+            view.addGestureRecognizer(g)
+        }
         return view
     }
 
@@ -247,6 +268,8 @@ struct HouseHomeView: View {
     @State private var moving = false
     /// The highest floor shown (nil: all of it).
     @State private var floor: Int?
+    /// The room in hand while one's being put somewhere, and why it can't go where it is.
+    @State private var held: HouseStage.Held?
     @State private var showingPurses = false
     @Environment(SideMenuState.self) private var menu: SideMenuState?
     private let house = HouseStore.shared
@@ -293,6 +316,7 @@ struct HouseHomeView: View {
             if close == nil {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
                 ToolbarItem(placement: .topBarLeading) { mapButton }
+                ToolbarItem(placement: .topBarLeading) { turnButton }
                 if parents {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Purses", systemImage: "circle.fill") { showingPurses = true }
@@ -309,6 +333,7 @@ struct HouseHomeView: View {
                 focus = stage.focus
                 wide = stage.wide
                 floor = stage.floor
+                held = stage.held
             }
             store.openHouse()
             demo()
@@ -451,16 +476,14 @@ struct HouseHomeView: View {
             // A marker, with the card up; without it, a thing in the room.
             guard let room = HouseCatalog.room(roomID), let spot = room.spot(spotID) else { return }
             choose(kid, room, spot)
-        case .cell(_, let cell):
-            put(at: cell)
         case .room(let kid, let roomID):
             if moving, kid == me {
+                // (The landing isn't picked up: it goes where the hall goes.)
+                guard roomID != HouseLayout.landing else { return }
                 stage.picking = false
                 moving = false
                 place(.move(roomID))
             } else if placing == nil, focus != .room(kid, roomID) {
-                // Onto its floor, if another's picked.
-                if let floor, kid == me, !parents, house.state.cell(of: roomID)[1] != floor { setFloor(house.state.cell(of: roomID)[1]) }
                 go(.room(kid, roomID))
             }
         case .house(let kid):
@@ -513,11 +536,11 @@ struct HouseHomeView: View {
 
     // MARK: Where rooms go
 
-    /// Show where a room could go, for them to tap one.
+    /// Pick a room up, for them to drag to where it goes.
     private func place(_ what: Placing) {
         placing = what
         moving = false
-        stage.setPlacing((what.room, house.state.places(for: what.room)))
+        stage.hold(what.room)
         MathAudio.shared.play("tap", volume: 0.4)
     }
 
@@ -525,7 +548,7 @@ struct HouseHomeView: View {
         placing = nil
         moving = false
         stage.picking = false
-        stage.setPlacing(nil)
+        stage.letGo()
     }
 
     /// Wait for a tap on the room to move, with the whole house to pick from.
@@ -536,18 +559,18 @@ struct HouseHomeView: View {
         MathAudio.shared.play("tap", volume: 0.4)
     }
 
-    /// They've tapped where it goes.
-    private func put(at cell: [Int]) {
-        guard let placing else { return }
+    /// Put the room in hand down where it's held, if it can go there.
+    private func put() {
+        guard let placing, let at = stage.held, at.trouble == nil else { MathAudio.shared.play("deny", volume: 0.6); return }
         switch placing {
         case .new(let room):
-            guard house.unlock(room, at: cell) else { MathAudio.shared.play("deny", volume: 0.6); return }
+            guard house.unlock(room, at: at.plot) else { MathAudio.shared.play("deny", volume: 0.6); return }
             MathAudio.shared.play("goal", volume: 0.7)
             stopPlacing()
             show()
             go(.room(me, room.id))
         case .move(let id):
-            guard house.move(id, to: cell) else { MathAudio.shared.play("deny", volume: 0.6); return }
+            guard house.move(id, to: at.plot) else { MathAudio.shared.play("deny", volume: 0.6); return }
             MathAudio.shared.play("equip", volume: 0.6)
             stopPlacing()
             show()
@@ -572,7 +595,8 @@ struct HouseHomeView: View {
     private var floors: [Int] {
         guard let kid = openHouse else { return [] }
         var out = Set(state(of: kid)?.floors ?? [])
-        if placing != nil, kid == me, let cells = stage.placing?.cells { out.formUnion(cells.map { $0[1] }) }
+        // A room in hand can go upstairs before there is an upstairs; the basement only goes down.
+        if let placing, kid == me { out.formUnion(placing.room == HouseLayout.basement ? [-1] : [0, 1]) }
         return out.sorted()
     }
 
@@ -597,15 +621,23 @@ struct HouseHomeView: View {
             .accessibilityLabel(wide ? "Our end of the street" : "The whole neighbourhood")
     }
 
+    /// Round to the next corner. (Two fingers turn it any amount.)
+    private var turnButton: some View {
+        Button { stage.turn(1); MathAudio.shared.play("tap", volume: 0.4) } label: { Image(systemName: "rotate.right") }
+            .accessibilityLabel("Turn the view")
+            .accessibilityIdentifier("house.turn")
+    }
+
     // MARK: Over the scene
 
     /// Said over the top of the scene: what to do next while a room's being put somewhere, when a tap means
     /// something else; or whose room they're looking round.
     private var prompt: String? {
         if let placing {
+            // Why it can't go where it's held; or what to do with it.
+            if let trouble = held?.trouble { return trouble }
             let room = HouseCatalog.room(placing.room)?.name ?? "room"
-            if case .new = placing { return "Tap where the \(room.lowercased()) goes" }
-            return "Tap where to move the \(room.lowercased())"
+            return "Drag the \(room.lowercased()) to where it goes"
         }
         if moving { return "Tap the room to move" }
         // Whose room this is, in a house that isn't theirs to change. (Their own is named on the button for changing it.)
@@ -673,11 +705,11 @@ struct HouseHomeView: View {
     /// A floor at a time, or all of it: one short column, the top floor at the top.
     private var floorPicker: some View {
         VStack(spacing: 2) {
-            ForEach([nil] + floors.reversed().map(Optional.some), id: \.self) { (f: Int?) in
-                let on = floor == f
+            ForEach(floors.reversed(), id: \.self) { (f: Int) in
+                let on = (floor ?? 0) == f
                 Button { setFloor(f); MathAudio.shared.play("tap", volume: 0.4) } label: {
-                    // "All", then "2", "G", "B": said in full to VoiceOver.
-                    Text(f.map { $0 < 0 ? "B" : $0 == 0 ? "G" : "\($0 + 1)" } ?? "All")
+                    // "2", "G", "B": said in full to VoiceOver.
+                    Text(f < 0 ? "B" : f == 0 ? "G" : "\(f + 1)")
                         .font(.system(.footnote, design: .rounded).weight(.heavy))
                         .frame(width: 38, height: 36)
                         .foregroundStyle(on ? .white : Self.ink)
@@ -685,7 +717,7 @@ struct HouseHomeView: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(f.map(HouseLayout.name(of:)) ?? "All floors")
+                .accessibilityLabel(HouseLayout.name(of: f))
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
@@ -702,10 +734,33 @@ struct HouseHomeView: View {
                 Button { stopPlacing() } label: {
                     Label("Cancel", systemImage: "xmark")
                         .font(.system(.headline, design: .rounded).weight(.heavy))
-                        .padding(.horizontal, 18).padding(.vertical, 11)
+                        .padding(.horizontal, 16).padding(.vertical, 11)
                         .foregroundStyle(Self.ink)
                 }
                 .glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
+                .accessibilityIdentifier("house.place.cancel")
+                if placing != nil {
+                    // Turn the room in hand a quarter; and the one thing in red, putting it down.
+                    Button { stage.turnHeld(); MathAudio.shared.play("tap", volume: 0.4) } label: {
+                        Image(systemName: "arrow.trianglehead.clockwise")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .frame(width: 44, height: 44)
+                            .foregroundStyle(Self.ink)
+                    }
+                    .glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .circle)
+                    .accessibilityLabel("Turn it")
+                    .accessibilityIdentifier("house.place.turn")
+                    Spacer(minLength: 8)
+                    Button { put() } label: {
+                        Label("Put it here", systemImage: "checkmark")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .lineLimit(1)
+                            .padding(.horizontal, 16).padding(.vertical, 11)
+                            .foregroundStyle(.white)
+                    }
+                    .glassEffect(.regular.tint(held?.trouble == nil ? TuttlesLook.accent : .gray.opacity(0.5)).interactive(), in: .capsule)
+                    .accessibilityIdentifier("house.place.put")
+                }
             } else {
                 Button { adding = true; MathAudio.shared.play("tap", volume: 0.4) } label: {
                     Label("Rooms", systemImage: "house.fill")
@@ -761,7 +816,6 @@ struct HouseHomeView: View {
         guard store.isDemo || number("--house-coins") != nil else { return }
         var theirs = HouseState()
         theirs.rooms = ["bedroom", "living", "kitchen"]
-        theirs.cells = ["bedroom": [0, 0, 0], "living": [0, 0, -1], "kitchen": [-1, 1, -1]]
         theirs.settle()
         for id in ["bedroom.bed.bunk", "bedroom.rug.space", "bedroom.desk.screen", "bedroom.left.shark", "bedroom.pet.dog", "bedroom.walls.sky",
                    "living.sofa.long", "living.tv.modern", "living.rug.zigzag", "living.armchair.relax", "kitchen.fridge.large", "kitchen.table.round",
@@ -993,7 +1047,7 @@ struct HouseRoomSheet: View {
     private func row(_ room: HouseRoom) -> some View {
         let price = house.state.price(of: room)
         let afford = house.state.canAfford(coins: price.coins, gems: price.gems)
-        let fits = !house.state.places(for: room.id).isEmpty
+        let fits = house.state.place(for: room.id) != nil
         return Button {
             guard afford, fits else { refused += 1; MathAudio.shared.play("deny", volume: 0.6); return }
             picked(room)
@@ -1007,7 +1061,7 @@ struct HouseRoomSheet: View {
                     Text(room.name).font(.system(.headline, design: .rounded).weight(.heavy))
                     Text(room.blurb).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     if !fits {
-                        Text(room.id == "basement" ? "Goes under a room on the ground." : "Nowhere it fits yet.")
+                        Text("Nowhere it fits yet.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

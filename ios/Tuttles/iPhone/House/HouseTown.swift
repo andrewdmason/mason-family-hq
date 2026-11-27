@@ -35,6 +35,8 @@ enum HouseTown {
     static func avalon(_ x: Float) -> Float { 5 * sin(2 * .pi * x / east) }
 
     static let middle = SIMD3<Float>((west + east) / 2, 0, (north + south) / 2)
+    /// How far it is from the middle of it to a corner.
+    static var reach: Float { simd_length(SIMD3(east, 0, south) - middle) + 7 }
 
     /// The corners of all of it, to frame it by.
     static var corners: [SIMD3<Float>] {
@@ -57,7 +59,7 @@ enum HouseTown {
         var wide: Float = HouseLand.lotSize, deep: Float = HouseLand.lotSize
         let front: Front
 
-        /// Where a house on it stands: its first room's corner, the lot going HouseLayout.lot either way from there.
+        /// Where a house on it stands: the lot's north-west corner.
         var origin: SIMD3<Float> { SIMD3(x - HouseLand.lotStart, 0, z - HouseLand.lotStart) }
 
         /// How far south a path from a door at `x` runs before it meets what the lot fronts.
@@ -108,9 +110,9 @@ enum HouseTown {
     /// spot. Nobody builds it; it's there to look round.
     static let parents: HouseShown = {
         var state = HouseState()
-        state.cells = ["living": [1, 0, 0], "kitchen": [0, 0, 0], "garden": [-1, 0, 0], "den": [1, 0, -1], "bathroom": [0, 0, -1],
-                       "bedroom": [1, 1, -1], "observatory": [0, 1, -1], "basement": [1, -1, 0]]
+        // Every room, each where it stands in a house as it comes (HouseLayout.home).
         state.rooms = ["living", "kitchen", "garden", "den", "bathroom", "bedroom", "observatory", "basement"]
+        state.settle()
         for (r, room) in HouseCatalog.rooms.enumerated() {
             for (s, spot) in room.spots.enumerated() where !spot.items.isEmpty {
                 // Not the first thing in every spot, nor the dearest: a mix.
@@ -125,21 +127,6 @@ enum HouseTown {
         let mom = MathLook(head: "female-b", body: "female-a", hair: "8a5a34", skin: "f3c9a8", top: "c9566b", bottom: "2f3b55", shoes: "f2f2f2")
         return HouseShown(kid: parentsID, name: "Mom & Dad", mine: false, state: state, look: dad, partner: mom)
     }()
-
-    /// The way from a house's front door down to the street, in the house's
-    /// own space: a path, or for Mom & Dad's a drive up from the turning circle.
-    static func path(from door: [Int], on lot: Lot) -> SCNNode {
-        let S = HouseCatalog.side
-        let wide: Float = lot.front == .bulb ? 3 : 1.4
-        let x = Float(door[0]) * S + S * 0.3, z0 = Float(door[2]) * S + S + 0.3
-        let z1 = lot.frontZ(at: lot.origin.x + x) - lot.origin.z
-        let node = SCNNode()
-        guard z1 > z0 else { return node }
-        let slab = MathShape.floor(wide, z1 - z0, flat("e4ddcb"))
-        slab.castsShadow = false
-        node.add(slab, x, walkY, (z0 + z1) / 2)
-        return node
-    }
 
     // MARK: The land
 

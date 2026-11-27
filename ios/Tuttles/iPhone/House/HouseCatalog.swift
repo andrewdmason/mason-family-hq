@@ -129,13 +129,13 @@ enum HouseCatalog {
         return prices[min(max(owned, 0), prices.count - 1)]
     }
 
-    static func room(_ id: String) -> HouseRoom? { rooms.first { $0.id == id } }
+    static func room(_ id: String) -> HouseRoom? { rooms.first { $0.id == id } ?? fixtures.first { $0.id == id } }
 
     static func item(_ id: String) -> HouseItem? { items[id] }
 
     private static let items: [String: HouseItem] = {
         var all: [String: HouseItem] = [:]
-        for room in rooms + [outside] { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
+        for room in rooms + fixtures + [outside] { for spot in room.spots { for item in spot.items { all[item.id] = item } } }
         return all
     }()
 
@@ -674,6 +674,64 @@ enum HouseCatalog {
         ])
 
     // MARK: Outside
+
+    // MARK: The hall and the landing
+
+    /// What every house has without buying it (HouseLayout.swift): the hall,
+    /// with the front door and the stairs in it, and the landing over it
+    /// once there's a room upstairs. Their spots are written in metres, as
+    /// they are: three across and five back, the stairs down the left.
+    static let fixtures: [HouseRoom] = [hall, landing]
+
+    private static let hall = HouseRoom(
+        id: "hall", name: "Hall", blurb: "Where the front door is, and the stairs.", cell: [0, 0, 0], gems: 0, stand: [2.0, 3.2],
+        spots: [
+            walls("hall", ("Linen", "efe6d6", "c2b08f"), [
+                ("Sage", "The first thing anyone sees. Calm.", "c9dcc0", "94b08a", 40),
+                ("Sky", "As if the door were still open.", "bfe0f2", "8fb9d3", 40),
+                ("Terracotta", "Warm from the moment you're in.", "d98e6b", "a9623f", 70),
+            ]),
+            floors("hall", ("Parquet", "parquet", "c98f55", "9a6a3a"), [
+                ("Pale Ash", "Shows where everyone's been.", "boards", "e7d3b0", "cdb388", 60),
+                ("Checkers", "Black, white, and the way through.", "checker", "f1ede2", "2f3b55", 110),
+            ]),
+            wood("hall"),
+            fabric("hall"),
+            spot("hall", "rug", "Rug", .rug(2.0, 2.3), [
+                ("runner", "Runner", "Takes most of what's on a shoe.", 35, 0, .rug("stripes", "2f5f9a", "efe6d6")),
+                ("mat", "Welcome Mat", "It means it.", 25, 0, .rug("hatch", "8a6a3f", "c9a36b")),
+                ("round", "Round Rug", "For standing on while you find your keys.", 45, 0, .rug("round", "c1502e", "f1d6a8")),
+            ]),
+            spot("hall", "corner", "By the door", .floor(2.5, 4.45, 0), [
+                ("coat", "Coat Stand", "One coat on it that's nobody's.", 50, 0, .kit("coatRackStanding")),
+                ("plant", "Hall Plant", "Sees everyone in and everyone out.", 30, 0, .kit("pottedPlant")),
+                ("lamp", "Hall Lamp", "Left on for whoever's last home.", 60, 0, .kit("lampRoundFloor")),
+            ]),
+        ])
+
+    private static let landing = HouseRoom(
+        id: "landing", name: "Landing", blurb: "The top of the stairs.", cell: [0, 1, 0], gems: 0, stand: [2.0, 2.4],
+        spots: [
+            walls("landing", ("Linen", "efe6d6", "c2b08f"), [
+                ("Sage", "Quiet, on the way to bed.", "c9dcc0", "94b08a", 40),
+                ("Dusk", "It's always nearly bedtime up here.", "5d5f8f", "3e3f66", 90),
+            ]),
+            floors("landing", ("Parquet", "parquet", "c98f55", "9a6a3a"), [
+                ("Pale Ash", "Creaks on the third board. Always the third.", "boards", "e7d3b0", "cdb388", 60),
+                ("Blue Carpet", "Quiet enough to creep along.", "carpet", "5b86c4", "4b74b0", 70),
+            ]),
+            wood("landing"),
+            fabric("landing"),
+            spot("landing", "rug", "Rug", .rug(2.0, 2.3), [
+                ("runner", "Runner", "From the stairs to wherever you're going.", 35, 0, .rug("stripes", "d6263a", "f3ead2")),
+                ("round", "Round Rug", "Somewhere to stand and listen downstairs.", 45, 0, .rug("round", "3f8f5a", "cfe6c2")),
+            ]),
+            spot("landing", "corner", "Corner", .floor(2.5, 4.45, 0), [
+                ("books", "Low Shelf", "The books nobody's finished.", 50, 0, .kit("bookcaseOpenLow")),
+                ("plant", "Landing Plant", "Watches the stairs.", 30, 0, .kit("pottedPlant")),
+                ("bear", "Bear on the Landing", "Halfway to bed. He stopped for a rest.", 50, 0, .kit("bear")),
+            ]),
+        ])
 
     /// The outside of the house: not a room, and always theirs. What's put
     /// here is kept like a room's spots ("outside.roof").

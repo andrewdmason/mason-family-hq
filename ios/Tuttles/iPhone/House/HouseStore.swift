@@ -40,8 +40,12 @@ struct HouseState: Codable, Equatable {
     /// Which way of paying it was kept under. 1 was the first (big numbers,
     /// back pay); a house from before `HouseState.economy` starts again.
     var economy = HouseState.economy
-    /// Where each of their rooms stands (HouseLayout.swift): [across, floor, back].
+    /// Where each of their rooms stood when a house was a stack of square
+    /// rooms: [across, floor, back]. Kept as it was, for a phone that hasn't
+    /// been updated; nothing here reads it.
     var cells: [String: [Int]] = [HouseCatalog.first: [0, 0, 0]]
+    /// Where each of their rooms stands, and the hall (HouseLayout.swift): [x, z, floor, turn].
+    var plots: [String: [Int]] = HouseState.settled([HouseCatalog.first], from: [:])
 
     /// The economy of 2026-11-26: coins about a tenth of what they were, no back pay.
     static let economy = 2
@@ -61,25 +65,41 @@ struct HouseState: Codable, Equatable {
         paid = (try? c.decode([String].self, forKey: .paid)) ?? []
         days = (try? c.decode([Paid].self, forKey: .days)) ?? []
         economy = (try? c.decode(Int.self, forKey: .economy)) ?? 1
-        // A house from before they chose where rooms go gets them put somewhere that holds together.
-        cells = HouseLayout.settle(rooms, from: (try? c.decode([String: [Int]].self, forKey: .cells)) ?? [:])
+        cells = (try? c.decode([String: [Int]].self, forKey: .cells)) ?? [HouseCatalog.first: [0, 0, 0]]
+        // A house from before rooms had sizes, or one that's got muddled, gets them put somewhere that holds together.
+        plots = HouseState.settled(rooms, from: (try? c.decode([String: [Int]].self, forKey: .plots)) ?? [:])
+    }
+
+    private static func settled(_ rooms: [String], from kept: [String: [Int]]) -> [String: [Int]] {
+        HouseLayout.settle(rooms, from: kept.compactMapValues { HousePlot($0) }).mapValues(\.kept)
     }
 
     // MARK: Reading it
 
-    func has(room: String) -> Bool { rooms.contains(room) }
+    /// Everything standing in the house and where: their rooms, the hall, and the landing once anything's upstairs.
+    var layout: [String: HousePlot] { HouseLayout.standing(rooms, plots.compactMapValues { HousePlot($0) }) }
+
+    /// Theirs to decorate: a room they've bought, or the hall and landing every house has.
+    func has(room: String) -> Bool { rooms.contains(room) || (HouseLayout.fixture(room) && layout[room] != nil) }
 
     /// Where a room of theirs stands.
-    func cell(of room: String) -> [Int] { cells[room] ?? HouseCatalog.room(room)?.cell ?? [0, 0, 0] }
-
-    /// Which of their rooms is in a cell.
-    func room(at cell: [Int]) -> String? { rooms.first { self.cell(of: $0) == cell } }
+    func plot(of room: String) -> HousePlot? { layout[room] }
 
     /// The floors their house has, lowest first.
-    var floors: [Int] { Set(rooms.map { cell(of: $0)[1] }).sorted() }
+    var floors: [Int] { Set(layout.values.map(\.floor)).sorted() }
 
-    /// Where a room could go: one to buy, or one of theirs to move.
-    func places(for room: String) -> [[Int]] { HouseLayout.places(for: room, in: cells) }
+    /// Somewhere a room could go to start with: one to buy, or one of theirs to move.
+    func place(for room: String) -> HousePlot? {
+        if let p = plot(of: room) { return p }
+        return HouseLayout.place(for: room, in: layout.filter { $0.key != HouseLayout.landing })
+    }
+
+    /// What would be wrong with the house with a room put there (one of theirs moved, or one being bought).
+    func problem(putting room: String, at p: HousePlot) -> HouseLayout.Problem? {
+        var trial = plots.compactMapValues { HousePlot($0) }
+        trial[room] = p
+        return HouseLayout.problem(HouseLayout.standing(rooms.contains(room) || HouseLayout.fixture(room) ? rooms : rooms + [room], trial))
+    }
 
     func owns(_ item: HouseItem) -> Bool { item.free || owned.contains(item.id) }
 
@@ -155,32 +175,32 @@ struct HouseState: Codable, Equatable {
         }
     }
 
-    /// Buy a room, if it's one to buy and there's enough, and put it here (or
-    /// wherever it fits, with no cell). True if it's theirs now.
+    /// Buy a room, if it's one to buy and there's enough, and put it there (or
+    /// wherever it fits, with nowhere given). True if it's theirs now.
     @discardableResult
-    mutating func unlock(_ room: HouseRoom, at cell: [Int]? = nil) -> Bool {
+    mutating func unlock(_ room: HouseRoom, at p: HousePlot? = nil) -> Bool {
         if has(room: room.id) { return true }
-        if let cell, !places(for: room.id).contains(cell) { return false }
+        if let p, problem(putting: room.id, at: p) != nil { return false }
         let price = price(of: room)
         guard canAfford(coins: price.coins, gems: price.gems) else { return false }
         coins -= price.coins
         gems -= price.gems
         rooms.append(room.id)
-        if let cell { cells[room.id] = cell }
+        if let p { plots[room.id] = p.kept }
         settle()
         return true
     }
 
-    /// Move a room of theirs to another cell, if the house still holds together. Free.
+    /// Move a room of theirs (or the hall), if the house still holds together. Free.
     @discardableResult
-    mutating func move(_ room: String, to cell: [Int]) -> Bool {
-        guard has(room: room), places(for: room).contains(cell) else { return false }
-        cells[room] = cell
+    mutating func move(_ room: String, to p: HousePlot) -> Bool {
+        guard rooms.contains(room) || room == HouseLayout.hall, problem(putting: room, at: p) == nil else { return false }
+        plots[room] = p.kept
         return true
     }
 
     /// Every room somewhere, and the house in one piece.
-    mutating func settle() { cells = HouseLayout.settle(rooms, from: cells) }
+    mutating func settle() { plots = HouseState.settled(rooms, from: plots) }
 
     /// Put a thing in its spot, buying it first if it isn't theirs. True if it's there now.
     /// (The outside of the house is always theirs to change.)
@@ -326,15 +346,15 @@ final class HouseStore {
     // MARK: Spending
 
     @discardableResult
-    func unlock(_ room: HouseRoom, at cell: [Int]? = nil) -> Bool {
-        guard saved.state.unlock(room, at: cell) else { return false }
+    func unlock(_ room: HouseRoom, at p: HousePlot? = nil) -> Bool {
+        guard saved.state.unlock(room, at: p) else { return false }
         save()
         return true
     }
 
     @discardableResult
-    func move(_ room: String, to cell: [Int]) -> Bool {
-        guard saved.state.move(room, to: cell) else { return false }
+    func move(_ room: String, to p: HousePlot) -> Bool {
+        guard saved.state.move(room, to: p) else { return false }
         save()
         return true
     }
