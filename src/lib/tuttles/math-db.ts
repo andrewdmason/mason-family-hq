@@ -150,7 +150,7 @@ async function countAnswers(admin: Admin, userId: string, only: { correct?: true
 
 type RunRow = { stars: number; economy: number; waves: number; depth: number; best_streak: number };
 
-async function loadRuns(admin: Admin, userId: string): Promise<RunBests[]> {
+export async function loadRuns(admin: Admin, userId: string): Promise<RunBests[]> {
   const out: RunBests[] = [];
   // A page is a thousand rows, and a keen week is a lot of runs.
   for (let from = 0; ; from += 1000) {

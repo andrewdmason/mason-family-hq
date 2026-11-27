@@ -7,13 +7,9 @@ import SwiftUI
 // going in the same scene, the way Subway Surfers starts.
 
 struct MathHomeView: View {
-    @Environment(ChatStore.self) private var store
-
     var body: some View {
         if let at = CommandLine.arguments.firstIndex(of: "--math-figures"), CommandLine.arguments.count > at + 2 {
             MathFigureGallery(level: CommandLine.arguments[at + 1] == "lower" ? .lower : .middle, from: Int(CommandLine.arguments[at + 2]) ?? 0)
-        } else if store.showingParentView {
-            MathParentView()
         } else {
             MathPlayView()
         }

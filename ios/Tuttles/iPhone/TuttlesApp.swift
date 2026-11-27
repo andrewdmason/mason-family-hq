@@ -133,9 +133,10 @@ struct ChatsView: View {
             open(store.asParent ? .dashboard : .chat(UUID(), isNew: true), closingMenu: false)
         }
         .onAppear {
-            if store.asParent, ![Route.dashboard, .week, .vocab, .math, .house, .myVocab, .myMath, .myHouse].contains(root) {
+            if store.asParent, ![Route.dashboard, .week, .myVocab, .myMath, .myHouse].contains(root) {
+                // For a parent the kids' Vocab and Math are on the dashboard, and their houses a page off it (`--house`).
+                path = root == .house ? [.house] : []
                 root = .dashboard
-                path = []
             }
             store.play(own: root.isMine)
         }

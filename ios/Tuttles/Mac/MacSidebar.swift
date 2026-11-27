@@ -49,7 +49,6 @@ struct MacSidebar: View {
                 if store.asParent {
                     place("Dashboard", "chart.bar.xaxis").tag(Item.dashboard)
                     place("This week", "calendar").tag(Item.week)
-                    place("Kids' Vocab", "character.book.closed").tag(Item.vocab)
                 } else {
                     place("Classes", "books.vertical").tag(Item.classes)
                     place("Study", "checklist").tag(Item.study)

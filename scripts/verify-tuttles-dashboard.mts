@@ -6,7 +6,8 @@
  */
 
 import assert from "node:assert/strict";
-import { dashboardDays, dashboardWeeks, practiceWords } from "../src/lib/tuttles/dashboard";
+import { dashboardDays, dashboardHouse, dashboardMath, dashboardWeeks, practiceWords, vocabStreak } from "../src/lib/tuttles/dashboard";
+import { summarize, type Answered } from "../src/lib/tuttles/math";
 import type { Item, Progress } from "../src/lib/words/types";
 
 const tz = "America/Los_Angeles";
@@ -80,5 +81,50 @@ const words = practiceWords(items, progress, today);
 assert.deepEqual(words.map((w) => [w.id, w.reason, w.misses]), [["w:b", "trouble", 5], ["w:a", "trouble", 2], ["w:e", "due", 0]]);
 assert.equal(words[0].meaning, "means w:b");
 assert.equal(practiceWords(items, progress, today, 1).length, 1);
+
+// Vocab's streak: days done in a row back from today, a day's sessions added up, and today not yet done doesn't break it.
+const ten = 600_000;
+const done = (day: string) => ({ day, elapsed_ms: ten, finished_at: `${day}T18:00:00Z` });
+assert.equal(vocabStreak([done("2026-11-26"), done("2026-11-25"), done("2026-11-24"), done("2026-11-22")], today), 3);
+assert.equal(vocabStreak([done("2026-11-25"), done("2026-11-24")], today), 2, "today still to do");
+assert.equal(vocabStreak([{ day: today, elapsed_ms: 200_000, finished_at: null }, done("2026-11-25")], today), 1, "four minutes isn't the day done");
+assert.equal(
+  vocabStreak([{ day: today, elapsed_ms: 350_000, finished_at: null }, { day: today, elapsed_ms: 300_000, finished_at: null }], today),
+  1,
+  "two sessions make the ten minutes",
+);
+assert.equal(vocabStreak([done("2026-11-20")], today), 0);
+
+// Math: the topics going worst that have enough answers behind them, and the latest misses.
+const answer = (n: number, topic: string, correct: boolean): Answered => ({
+  question: `M-${String(n).padStart(4, "0")}`, topic, section: "ma", chosen: correct ? 1 : n % 2 === 0 ? null : 2, correct, ms: 30_000,
+  at: new Date(Date.parse("2026-11-26T18:00:00Z") + n * 60_000).toISOString(),
+});
+const answers: Answered[] = [
+  // Fractions: 1 of 4. Geometry: 3 of 4. Ratios: 0 of 2, too few to say.
+  answer(1, "fractions", false), answer(2, "fractions", false), answer(3, "fractions", true), answer(4, "fractions", false),
+  answer(5, "geometry", true), answer(6, "geometry", true), answer(7, "geometry", false), answer(8, "geometry", true),
+  answer(9, "ratios", false), answer(10, "ratios", false),
+];
+const math = dashboardMath(
+  summarize({ kid: "k", name: "Sebastian Mason", level: "middle", today, tz, answers, runs: [{ stars: 900, economy: 2, waves: 4, depth: 3, bestStreak: 5 }] }),
+);
+assert.deepEqual(math.topics.map((t) => [t.topic, t.correct, t.answered]), [["fractions", 1, 4], ["geometry", 3, 4]]);
+assert.deepEqual(math.misses.map((m) => m.question).slice(0, 3), ["M-0010", "M-0009", "M-0007"]);
+assert.equal(math.misses.length, 6);
+assert.equal(math.misses[0].timedOut, true, "no choice made is running out of time");
+assert.deepEqual([math.runs, math.answeredTotal, math.correctTotal, math.best.streak], [1, 10, 4, 5]);
+assert.equal(math.streak, 0, "ten answers isn't the day's twenty");
+const many = Array.from({ length: 40 }, (_, i) => answer(100 + i, `topic${i % 8}`, false));
+const lots = dashboardMath(summarize({ kid: "k", name: "K", level: "lower", today, tz, answers: many, runs: [] }));
+assert.equal(lots.topics.length, 5);
+assert.equal(lots.misses.length, 12);
+assert.equal(lots.streak, 1);
+
+// The purse: what the phone's house says it holds, and nothing made of a house that isn't there.
+assert.deepEqual(dashboardHouse({ coins: 1240, gems: 3, rooms: ["bedroom", "kitchen"], placed: {} }), { coins: 1240, gems: 3, rooms: 2 });
+assert.deepEqual(dashboardHouse({ coins: "lots", gems: -2 }), { coins: 0, gems: 0, rooms: 0 });
+assert.equal(dashboardHouse(null), null);
+assert.equal(dashboardHouse(undefined), null);
 
 console.log("tuttles dashboard: ok");

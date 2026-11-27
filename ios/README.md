@@ -170,10 +170,14 @@ are in `src/lib/tuttles/prompt.ts`.
 - A parent's account menu picks who the phone is being used as: one of the
   kids, or the parent themselves ("Andrew", `ChatStore.Viewer.parent`). As
   themselves a parent has one menu with two groups. The first is about the
-  kids, the **Parent Dashboard** (This week, both kids' Vocab and Math, the
-  houses), opening on a page of its own (`Shared/ParentDashboard.swift`,
-  `/tuttles/api/parent/dashboard`): for each kid, the words to practice with
-  them today and their last four weeks by day and by week. The second,
+  kids: the **Parent Dashboard** and This week. The dashboard
+  (`Shared/ParentDashboard.swift`, `/tuttles/api/parent/dashboard`) is the
+  parents' one look at how the kids are doing, with no pages of Vocab's or
+  Math's own beside it: for each kid, where today stands and their streaks,
+  the words to practice with them today (and the way to all their words),
+  the Math topics and questions they miss, their house and purse (the way to
+  the street, on the iPhone), and their last four weeks by day and by week.
+  The second,
   "Yours", is the parent's own Vocab, Math and house (`Route.myVocab`,
   `.myMath`, `.myHouse`), kept apart from the kids' and played at Sebastian's
   level (Middle). The shell tells the store which group the open place is in
@@ -216,7 +220,9 @@ to break free, wrong and the run is over with the worked answer shown.
   `scripts/math/source`), so it plays
   with no connection. Runs, answers and how the kid looks are kept on the phone
   (`MathStore.swift`) and go to `/tuttles/api/math/sync` when there's signal;
-  the parents' view reads `/tuttles/api/math/summary`.
+  what the parents see of it is on the Parent Dashboard (the topics and
+  questions missed, `/tuttles/api/parent/dashboard`; `/tuttles/api/math/summary`
+  is kept for apps from before that).
 - What it pays goes into the house's purse as coins (below). Everyone runs as
   themselves; their look is free to change ("Look" on Math's first screen).
 - For the simulator, with `--demo --math`: `--math-run` starts running,
@@ -326,7 +332,8 @@ in each room fixed spots, each with its own things to choose between.
   shut house lit, and the night through the windows inside.
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
   street comes back and is kept, so the other house shows with no connection.
-  The parents see the street and each purse.
+  The parents see the street and each purse, from the house row of the
+  dashboard (`--house` in the parents' view opens there).
 - For the simulator, with `--demo --house`: `--house-coins 50000` and
   `--house-gems 40` fill the purse, `--house-room den` opens on a room,
   `--house-add kitchen` opens on choosing where that room goes,
