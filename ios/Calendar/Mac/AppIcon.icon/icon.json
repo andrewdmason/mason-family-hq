@@ -1,0 +1,31 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.541,0.604,0.341,1.0",
+      "srgb:0.290,0.337,0.157,1.0"
+    ],
+    "orientation" : { "start" : { "x" : 0.5, "y" : 0 }, "stop" : { "x" : 0.5, "y" : 1 } }
+  },
+  "groups" : [
+    {
+      "layers" : [ { "image-name" : "rings.svg", "name" : "rings", "glass" : true } ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    },
+    {
+      "layers" : [
+        { "image-name" : "today.svg", "name" : "today", "glass" : true },
+        { "image-name" : "marks.svg", "name" : "events", "glass" : true },
+        { "image-name" : "days.svg", "name" : "days", "glass" : false }
+      ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.35 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    },
+    {
+      "layers" : [ { "image-name" : "leaf.svg", "name" : "leaf", "glass" : true } ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    }
+  ],
+  "supported-platforms" : { "squares" : "shared" }
+}

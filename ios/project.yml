@@ -483,3 +483,45 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+  # Calendar on the Mac: a week window and a menubar applet (⌃⌥Space) in one
+  # app. Quitting leaves the menubar item running; see README › Calendar (Mac).
+  # It's "Family Calendar" on disk so it doesn't sit beside Apple's Calendar
+  # under the same name.
+  CalendarMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Calendar/Mac
+        excludes: [AppIcon.icon]
+      - path: Calendar/Mac/AppIcon.icon
+        type: file
+        buildPhase: resources
+      - path: Calendar/Shared
+      - path: Calendar/iPhone/CalendarStyle.swift
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+    info:
+      path: Calendar/Mac/Info.plist
+      properties:
+        CFBundleDisplayName: Family Calendar
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.calendar
+            CFBundleURLSchemes: [io.mason.calendar]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.productivity
+        # Starts as the menubar item alone; the Dock icon comes with the window.
+        LSUIElement: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.calendar
+        PRODUCT_NAME: Family Calendar
+        PRODUCT_MODULE_NAME: FamilyCalendar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Built and run on this Mac, with no Apple account needed to sign it
+        # (so no shared keychain: MasonKit's Session keeps the sign-in in a file).
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""

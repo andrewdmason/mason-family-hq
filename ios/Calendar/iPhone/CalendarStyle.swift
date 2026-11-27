@@ -1,6 +1,10 @@
 import MasonKit
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// The app's look: a quiet, flat content layer (warm paper, softened member
 /// colours) with Liquid Glass kept for what floats over it: the top bar, the
@@ -54,7 +58,13 @@ extension Color {
     }
 
     init(light: Color, dark: Color) {
+        #if canImport(UIKit)
         self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
+        #else
+        self.init(nsColor: NSColor(name: nil) { look in
+            look.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(dark) : NSColor(light)
+        })
+        #endif
     }
 }
 
@@ -67,7 +77,7 @@ struct Avatar: View {
     var body: some View {
         Group {
             if let member, let data = store.photos[member.email], let image = PhotoCache.image(member.email, data) {
-                Image(uiImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -85,14 +95,35 @@ struct Avatar: View {
     }
 }
 
+#if canImport(UIKit)
+typealias PlatformImage = UIImage
+#else
+typealias PlatformImage = NSImage
+#endif
+
+extension Image {
+    init(platformImage: PlatformImage) {
+        #if canImport(UIKit)
+        self.init(uiImage: platformImage)
+        #else
+        self.init(nsImage: platformImage)
+        #endif
+    }
+}
+
 /// Decoded photos, so scrolling doesn't decode them again.
 enum PhotoCache {
-    private static let cache = NSCache<NSString, UIImage>()
+    private static let cache = NSCache<NSString, PlatformImage>()
 
-    static func image(_ email: String, _ data: Data) -> UIImage? {
+    static func image(_ email: String, _ data: Data) -> PlatformImage? {
         let key = "\(email):\(data.count)" as NSString
         if let hit = cache.object(forKey: key) { return hit }
-        guard let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 160, height: 160)) else { return nil }
+        #if canImport(UIKit)
+        let made = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 160, height: 160))
+        #else
+        let made = NSImage(data: data)
+        #endif
+        guard let image = made else { return nil }
         cache.setObject(image, forKey: key)
         return image
     }

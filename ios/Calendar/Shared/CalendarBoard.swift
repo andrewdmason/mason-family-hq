@@ -82,10 +82,19 @@ struct Board: Sendable {
     /// The trip zone a moment is drawn in, for an event not on the board yet.
     func zone(at date: Date) -> TimeZone? { CalendarRules.zone(at: date, away: away) }
 
-    /// "Costa Rica time · 2h ahead", on a day away.
-    func zoneNote(on day: Day, in base: Calendar = .current) -> String? {
-        guard let zone = away[day] else { return nil }
-        return CalendarRules.zoneNote(zone, home: base.timeZone, at: day.at(minutes: 12 * 60, in: calendar(on: day, in: base)))
+    /// "Costa Rica time · 2h ahead", on a day drawn in a clock that isn't the
+    /// family's at home. A day in home time says nothing, wherever the device
+    /// is: opened on a trip, the days back home aren't the ones to mark.
+    func zoneNote(on day: Day, in base: Calendar = .current, home: TimeZone = CalendarRules.familyZone) -> String? {
+        let calendar = calendar(on: day, in: base)
+        let noon = day.at(minutes: 12 * 60, in: calendar)
+        guard calendar.timeZone.secondsFromGMT(for: noon) != home.secondsFromGMT(for: noon) else { return nil }
+        return CalendarRules.zoneNote(calendar.timeZone, home: home, at: noon)
+    }
+
+    /// Just the place of that note ("Costa Rica"), for where the whole of it won't fit.
+    func zonePlace(on day: Day, in base: Calendar = .current, home: TimeZone = CalendarRules.familyZone) -> String? {
+        zoneNote(on: day, in: base, home: home).map { _ in CalendarRules.zonePlace(calendar(on: day, in: base).timeZone) }
     }
 
     func member(_ email: String?) -> Member? {

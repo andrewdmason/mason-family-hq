@@ -78,11 +78,11 @@ private func event(
         )
     }
 
-    private func board(_ events: [CalEvent]) -> Board {
+    private func board(_ events: [CalEvent], in calendar: Calendar = pacific) -> Board {
         var snapshot = CalendarSnapshot()
         snapshot.members = [Member(email: me, name: "Andrew", role: .owner, color: "#2563eb")]
         snapshot.events = events
-        return Board.build(snapshot, me: me, in: pacific)
+        return Board.build(snapshot, me: me, in: calendar)
     }
 
     @Test func aDayOfPlacesElsewhereIsAway() {
@@ -126,6 +126,24 @@ private func event(
         var cleared = placed(3, in: costaRica)
         cleared.location = nil
         #expect(CalendarRules.awayZones([allDay, drive, cleared], home: home).isEmpty)
+    }
+
+    @Test func onlyADayOffHomeTimeSaysSo() {
+        // Opened on the trip, where the device keeps Costa Rica's time.
+        var there = pacific
+        there.timeZone = TimeZone(identifier: costaRica)!
+        // A day back home is drawn in home time, and that needs no saying.
+        let atHome = board([placed(1, in: "America/Los_Angeles")], in: there)
+        #expect(atHome.away[day]?.identifier == "America/Los_Angeles")
+        #expect(atHome.zoneNote(on: day, in: there) == nil)
+        #expect(atHome.zonePlace(on: day, in: there) == nil)
+        // A day of the trip is the one that's marked, though it's the device's own time.
+        let onTrip = board([placed(1, in: costaRica)], in: there)
+        #expect(onTrip.away[day] == nil)
+        #expect(onTrip.zoneNote(on: day, in: there) == "Costa Rica time · 2h ahead")
+        #expect(onTrip.zonePlace(on: day, in: there) == "Costa Rica")
+        // At home, a day at home says nothing either.
+        #expect(board([placed(1, in: "America/Los_Angeles")]).zoneNote(on: day, in: pacific) == nil)
     }
 
     @Test func aDayAwayReadsInItsOwnTime() {
