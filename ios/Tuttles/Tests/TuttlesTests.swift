@@ -383,6 +383,35 @@ final class ParentDashboardTests: XCTestCase {
         XCTAssertEqual(kid.weeks.first?.masteredGained, 3)
         XCTAssertEqual(kid.practice.map(\.title), ["candid"])
         XCTAssertEqual(Calendar.current.component(.day, from: DashboardDates.date("2026-11-26")), 26)
+        // An older website sends no streaks, Math or house: the page does without.
+        XCTAssertNil(kid.vocabStreak)
+        XCTAssertNil(kid.math)
+        XCTAssertNil(kid.house)
+        XCTAssertNil(payload.daysLeft)
+    }
+
+    /// The streaks, Math's trouble spots and the purse, which the dashboard took over from Vocab's and Math's own pages.
+    func testDecodesStreaksMathAndTheHouse() throws {
+        let json = """
+        {"today":"2026-11-26","daysLeft":46,"kids":[{"id":"00000000-0000-0000-0000-00000000000b","name":"Sebastian","level":"middle","totalWords":600,"mastered":42,
+          "days":[],"weeks":[],"practice":[],"vocabStreak":6,
+          "math":{"streak":2,"topics":[{"section":"qr","topic":"ratios","answered":12,"correct":5,"avgMs":48000}],
+            "misses":[{"question":"M-0013","topic":"fractions","section":"qr","at":"2026-11-25T18:00:00.000Z","timedOut":true}],
+            "best":{"score":18420,"waves":7,"depth":7,"streak":6},"runs":41,"answeredTotal":237,"correctTotal":166},
+          "house":{"coins":1240,"gems":3,"rooms":4}},
+         {"id":"k2","name":"Oscar","level":"lower","totalWords":500,"mastered":0,"days":[],"weeks":[],"practice":[],"vocabStreak":0,
+          "math":{"streak":0,"topics":[],"misses":[],"best":{"score":0,"waves":0,"depth":0,"streak":0},"runs":0,"answeredTotal":0,"correctTotal":0},
+          "house":null}]}
+        """
+        let payload = try JSONDecoder().decode(DashboardPayload.self, from: Data(json.utf8))
+        XCTAssertEqual(payload.daysLeft, 46)
+        let kid = try XCTUnwrap(payload.kids.first)
+        XCTAssertEqual(kid.vocabStreak, 6)
+        XCTAssertEqual(kid.math?.topics.first?.topic, "ratios")
+        XCTAssertEqual(kid.math?.misses.first?.timedOut, true)
+        XCTAssertEqual(kid.math?.best.score, 18420)
+        XCTAssertEqual(kid.house, .init(coins: 1240, gems: 3, rooms: 4))
+        XCTAssertNil(payload.kids.last?.house)
     }
 
     /// The demo's made-up four weeks hold together.

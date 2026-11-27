@@ -1,11 +1,12 @@
 import Charts
 import SwiftUI
 
-// The Parent Dashboard's own page: for each kid, the words worth going over
-// with them at home today, and how their Vocab and Math have gone over the
-// last four weeks (/tuttles/api/parent/dashboard, src/lib/tuttles/dashboard.ts).
-// It's the first thing a parent sees in the Parent Dashboard; This week, Vocab,
-// Math and the houses sit beside it in the menu.
+// The Parent Dashboard: the parents' one look at how the kids are doing
+// (/tuttles/api/parent/dashboard, src/lib/tuttles/dashboard.ts). For each kid:
+// where today stands, the words worth going over with them at home, where
+// Math is going wrong, their house and purse, and the last four weeks of
+// Vocab and Math. Vocab and Math have no pages of their own for the parents:
+// what those showed is here. Only This week sits beside it in the menu.
 
 struct DashboardPayload: Decodable {
     struct Day: Decodable, Hashable, Identifiable {
@@ -44,6 +45,47 @@ struct DashboardPayload: Decodable {
         /// "trouble" (missed again and again) or "due" (up for review now, not yet sure).
         let reason: String
     }
+    /// Math, past the day-by-day: what's going wrong, and their bests.
+    struct Math: Decodable, Hashable {
+        struct Topic: Decodable, Hashable {
+            /// "qr" (Quantitative Reasoning) or "ma" (Mathematics Achievement).
+            let section: String
+            let topic: String
+            let answered: Int
+            let correct: Int
+            let avgMs: Int
+        }
+        struct Miss: Decodable, Hashable {
+            /// The question's id in the bank (iPhone/Math/MathBank.swift).
+            let question: String
+            let topic: String
+            let section: String
+            let at: String
+            let timedOut: Bool
+        }
+        struct Best: Decodable, Hashable {
+            let score: Int
+            let waves: Int
+            let depth: Int
+            let streak: Int
+        }
+        /// Days in a row with the day's twenty answered.
+        let streak: Int
+        /// The few topics they get wrong most, the worst first.
+        let topics: [Topic]
+        /// The questions missed lately, the newest first.
+        let misses: [Miss]
+        let best: Best
+        let runs: Int
+        let answeredTotal: Int
+        let correctTotal: Int
+    }
+    /// What's in their purse, and how big the house has got.
+    struct House: Decodable, Hashable {
+        let coins: Int
+        let gems: Int
+        let rooms: Int
+    }
     struct Kid: Decodable, Hashable, Identifiable {
         let id: String
         let name: String
@@ -53,9 +95,16 @@ struct DashboardPayload: Decodable {
         let days: [Day]
         let weeks: [Week]
         let practice: [Word]
+        /// Days in a row with Vocab's ten minutes done. These three are nil from an older website.
+        var vocabStreak: Int? = nil
+        var math: Math? = nil
+        /// Nil too when they've never opened the house.
+        var house: House? = nil
     }
     let today: String
     let kids: [Kid]
+    /// Days until the ISEE. Nil from an older website.
+    var daysLeft: Int? = nil
 }
 
 enum DashboardDates {
@@ -119,7 +168,12 @@ struct ParentDashboardView: View {
                         .listRowInsets(EdgeInsets())
                     }
                 }
+                DashboardToday(kid: kid, today: payload.today, daysLeft: payload.daysLeft)
                 DashboardPractice(kid: kid)
+                if let math = kid.math { DashboardMath(kid: kid, math: math) }
+                #if os(iOS)
+                DashboardHouse(kid: kid)
+                #endif
                 DashboardTrends(kid: kid)
                 DashboardWeeks(kid: kid)
             } else if loaded {
@@ -137,6 +191,52 @@ struct ParentDashboardView: View {
     private func load() async {
         if let fresh = await store.loadDashboard() { payload = fresh }
         loaded = true
+    }
+}
+
+/// Where today stands: Vocab's ten minutes and Math's twenty questions, and the days in a row of each.
+private struct DashboardToday: View {
+    let kid: DashboardPayload.Kid
+    let today: String
+    let daysLeft: Int?
+
+    /// Math's questions a day (MathStore.dayGoal, which only the iPhone has).
+    static let mathGoal = 20
+
+    var body: some View {
+        let day = kid.days.last.flatMap { $0.day == today ? $0 : nil }
+        let minutes = Int((day?.vocabMinutes ?? 0).rounded(.down))
+        let answered = day?.mathAnswered ?? 0
+        let right = day?.mathCorrect ?? 0
+        // How Vocab's answers have gone today, once there are some.
+        let words = (day?.vocabAnswered ?? 0) > 0 ? ", \(day?.vocabCorrect ?? 0) of \(day?.vocabAnswered ?? 0) right" : ""
+        Section {
+            row("Vocab", done: day?.vocabDone == true, started: (day?.vocabMs ?? 0) > 0, streak: kid.vocabStreak,
+                detail: day?.vocabDone == true ? "Done · \(minutes) min\(words)" : (day?.vocabMs ?? 0) > 0 ? "\(minutes) of 10 min\(words)" : "Not yet")
+            row("Math", done: answered >= Self.mathGoal, started: answered > 0, streak: kid.math?.streak,
+                detail: answered >= Self.mathGoal ? "Done · \(answered) questions, \(right) right"
+                    : answered > 0 ? "\(answered) of \(Self.mathGoal) questions, \(right) right" : "Not yet")
+        } header: {
+            Text("Today")
+        } footer: {
+            if let daysLeft, daysLeft >= 0 { Text(VocabRules.countdown(daysLeft: daysLeft)) }
+        }
+    }
+
+    private func row(_ title: String, done: Bool, started: Bool, streak: Int?, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: done ? "checkmark.circle.fill" : started ? "circle.bottomhalf.filled" : "circle")
+                .font(.title2)
+                .foregroundStyle(done ? Color.green : started ? Color.orange : Color.secondary.opacity(0.5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.semibold))
+                Text(detail).font(.footnote).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let streak { VocabStreak(days: streak) }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -173,6 +273,12 @@ private struct DashboardPractice: View {
                 .padding(.vertical, 4)
                 .textSelection(.enabled)
             }
+            // Every word and where it stands (VocabListView), the way in that Vocab's own page for the parents was.
+            if let id = UUID(uuidString: kid.id) {
+                NavigationLink(value: Route.vocabList(kid: id, name: kid.name)) {
+                    Label("All of \(kid.name)'s words", systemImage: "list.bullet")
+                }
+            }
         } header: {
             Text("Practice with \(kid.name) today")
         } footer: {
@@ -180,6 +286,90 @@ private struct DashboardPractice: View {
         }
     }
 }
+
+/// Where Math is going wrong: the topics they miss most, and the questions they got wrong lately.
+private struct DashboardMath: View {
+    let kid: DashboardPayload.Kid
+    let math: DashboardPayload.Math
+
+    var body: some View {
+        Section {
+            if math.topics.isEmpty, math.misses.isEmpty {
+                Text(math.answeredTotal == 0 ? "\(kid.name) hasn't answered any Math yet." : "Nothing \(kid.name) keeps missing so far.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(math.topics, id: \.self) { topic in
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(topic.topic.capitalized)
+                        Text("\(topic.section == "qr" ? "Quantitative Reasoning" : "Mathematics Achievement") · \(topic.avgMs / 1000)s each")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("\(topic.correct)/\(topic.answered)")
+                        .font(.system(.body, design: .rounded).weight(.bold).monospacedDigit())
+                        .foregroundStyle(Double(topic.correct) / Double(max(1, topic.answered)) < 0.6 ? Color.red : Color.primary)
+                        .accessibilityLabel("\(topic.correct) of \(topic.answered) right")
+                }
+            }
+            if !math.misses.isEmpty {
+                DisclosureGroup("Missed lately (\(math.misses.count))") {
+                    ForEach(Array(math.misses.enumerated()), id: \.offset) { _, miss in
+                        #if os(iOS)
+                        // The question as it was asked, from the bank (iPhone/Math/MathParent.swift).
+                        MathMissRow(miss: miss)
+                        #else
+                        // The bank is the iPhone's: here, what it was about.
+                        Text(miss.timedOut ? "\(miss.topic.capitalized) (ran out of time)" : miss.topic.capitalized)
+                        #endif
+                    }
+                }
+            }
+        } header: {
+            Text("Math to work on")
+        } footer: {
+            if math.answeredTotal > 0 { Text(totals) }
+        }
+    }
+
+    /// "41 runs · most stars 18,420 · furthest: Gym · 6 right in a row · 70% right overall"
+    private var totals: String {
+        var parts = ["\(math.runs) \(math.runs == 1 ? "run" : "runs")", "most stars \(math.best.score.formatted())"]
+        #if os(iOS)
+        parts.append("furthest: \(math.best.furthest)")
+        #endif
+        parts.append("\(math.best.streak) right in a row")
+        parts.append("\(Int((Double(math.correctTotal) / Double(math.answeredTotal) * 100).rounded()))% right overall")
+        return parts.joined(separator: " · ")
+    }
+}
+
+#if os(iOS)
+/// Their house and what's in the purse; it opens the street, where the parents can walk into either house (HouseViews.swift).
+private struct DashboardHouse: View {
+    let kid: DashboardPayload.Kid
+
+    var body: some View {
+        Section("House") {
+            NavigationLink(value: Route.house) {
+                HStack(spacing: 12) {
+                    Image(systemName: "house.fill").font(.title2).foregroundStyle(TuttlesLook.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(kid.name)'s house").font(.body.weight(.semibold))
+                        Text(detail).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var detail: String {
+        guard let house = kid.house else { return "Not opened yet" }
+        return "\(house.rooms) \(house.rooms == 1 ? "room" : "rooms") · \(house.coins.formatted()) \(house.coins == 1 ? "coin" : "coins") · \(house.gems) \(house.gems == 1 ? "gem" : "gems")"
+    }
+}
+#endif
 
 /// The last four weeks, a bar a day.
 private struct DashboardTrends: View {
@@ -300,8 +490,26 @@ enum DemoDashboard {
                 .init(id: "w:diligent", title: "diligent", kind: "word", pos: "adj", meaning: "careful and hard-working",
                       example: "A diligent student checks every answer.", hook: "", misses: 1, reason: "due"),
             ]
-            return .init(id: id, name: name, level: level, totalWords: 600, mastered: days.last!.mastered, days: days, weeks: weeks, practice: words)
+            // Questions out of the bank for its level, so the misses read as they were asked.
+            let lower = level == "lower"
+            let math = DashboardPayload.Math(
+                streak: seed, topics: [
+                    .init(section: "qr", topic: lower ? "patterns" : "ratios", answered: 12, correct: 5, avgMs: 48000),
+                    .init(section: "ma", topic: lower ? "measurement" : "geometry", answered: 18, correct: 10, avgMs: 52000),
+                    .init(section: "ma", topic: "fractions", answered: 20, correct: 15, avgMs: 31000),
+                ],
+                misses: [
+                    .init(question: lower ? "L-0007" : "M-0013", topic: lower ? "geometry" : "fractions", section: lower ? "ma" : "qr", at: "2026-11-25T18:00:00Z", timedOut: lower),
+                    .init(question: lower ? "L-0012" : "M-0021", topic: lower ? "patterns" : "ratios", section: "qr", at: "2026-11-24T18:00:00Z", timedOut: false),
+                ],
+                best: .init(score: 12_000 + seed * 2140, waves: 4 + seed, depth: 4 + seed, streak: 4 + seed), runs: 36 + seed, answeredTotal: 237, correctTotal: 166)
+            return .init(id: id, name: name, level: level, totalWords: 600, mastered: days.last!.mastered, days: days, weeks: weeks, practice: words,
+                         vocabStreak: seed + 1, math: math, house: .init(coins: 640 * seed, gems: seed, rooms: 2 + seed))
         }
-        return .init(today: format.string(from: .now), kids: [kid("oscar", "Oscar", level: "lower", seed: 1), kid("sebastian", "Sebastian", level: "middle", seed: 3)])
+        // The ids are DemoVocab's kids', so "All of …'s words" opens the demo's list.
+        return .init(today: format.string(from: .now), kids: [
+            kid("00000000-0000-0000-0000-00000000000a", "Oscar", level: "lower", seed: 1),
+            kid("00000000-0000-0000-0000-00000000000b", "Sebastian", level: "middle", seed: 3),
+        ], daysLeft: 46)
     }
 }

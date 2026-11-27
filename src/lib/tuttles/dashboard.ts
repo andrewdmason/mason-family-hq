@@ -1,11 +1,13 @@
 // The Parent Dashboard in the Tuttles app: each kid's practice over the last
-// few weeks, Vocab and Math side by side, and the handful of words worth
-// going over with them at home today. Pure functions over plain data, so
+// few weeks, Vocab and Math side by side, the handful of words worth going
+// over with them at home today, and where Math is going wrong. It's the
+// parents' one look at the kids: there's no page of Vocab's or Math's own
+// beside it any more. Pure functions over plain data, so
 // they run in a script (scripts/verify-tuttles-dashboard.mts); the reading is
 // in the route (src/app/(tuttles)/tuttles/api/parent/dashboard/route.ts).
 
-import { countDays, dayIn, type Answered } from "@/lib/tuttles/math";
-import { addDays, dayDone, troubleScore } from "@/lib/words/schedule";
+import { countDays, dayIn, type Answered, type KidSummary, type Miss, type TopicStat } from "@/lib/tuttles/math";
+import { addDays, dayDone, streak, troubleScore } from "@/lib/words/schedule";
 import { statusOf, type Item, type Progress, type Status } from "@/lib/words/types";
 
 /** How many days back the dashboard looks. Four weeks: long enough to see a trend, short enough to read on a phone. */
@@ -59,6 +61,32 @@ export type PracticeWord = {
   reason: "trouble" | "due";
 };
 
+/** How many topics of Math it names: the few going worst, not the whole test. */
+export const MATH_TOPICS = 5;
+
+/** A topic needs this many answers before it's said to be going badly. */
+export const MATH_TOPIC_MIN = 3;
+
+/** How many of the latest missed questions it keeps. */
+export const MATH_MISSES = 12;
+
+/** Math, past the day-by-day: the run of days at the goal, what's going wrong, and their bests. */
+export type DashboardMath = {
+  /** Days in a row with the day's questions answered. */
+  streak: number;
+  /** The topics they get wrong most, the worst first. */
+  topics: TopicStat[];
+  /** The questions missed lately, the newest first. */
+  misses: Miss[];
+  best: KidSummary["best"];
+  runs: number;
+  answeredTotal: number;
+  correctTotal: number;
+};
+
+/** What a kid's purse holds, and how big their house has got. */
+export type DashboardHouse = { coins: number; gems: number; rooms: number };
+
 export type VocabSessionDay = { day: string; answered: number; correct: number; elapsed_ms: number; finished_at: string | null };
 
 /** Each of the last `n` days, oldest first: what was done in Vocab and Math, and the words mastered so far. */
@@ -102,6 +130,41 @@ export function dashboardDays(input: {
       mastered: m,
     };
   });
+}
+
+/** Days in a row with Vocab's practice done, counting back from today (or from yesterday if today's isn't done yet). */
+export function vocabStreak(sessions: Pick<VocabSessionDay, "day" | "elapsed_ms" | "finished_at">[], today: string): number {
+  const byDay = new Map<string, { ms: number; finished: number }>();
+  for (const s of sessions) {
+    const d = byDay.get(s.day) ?? { ms: 0, finished: 0 };
+    d.ms += s.elapsed_ms;
+    d.finished += s.finished_at ? 1 : 0;
+    byDay.set(s.day, d);
+  }
+  return streak(
+    [...byDay].filter(([day, d]) => dayDone(day, d.ms, d.finished)).map(([day]) => day),
+    today,
+  );
+}
+
+/** Math for the dashboard, from the whole of what the parents could see of it: the few topics going worst and the latest misses. */
+export function dashboardMath(summary: KidSummary): DashboardMath {
+  return {
+    streak: summary.streak,
+    topics: summary.topics.filter((t) => t.answered >= MATH_TOPIC_MIN).slice(0, MATH_TOPICS),
+    misses: summary.misses.slice(0, MATH_MISSES),
+    best: summary.best,
+    runs: summary.runs,
+    answeredTotal: summary.answeredTotal,
+    correctTotal: summary.correctTotal,
+  };
+}
+
+/** The purse and the size of the house, out of a house as a phone sent it; null when it isn't one. */
+export function dashboardHouse(json: Record<string, unknown> | null | undefined): DashboardHouse | null {
+  if (!json) return null;
+  const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+  return { coins: count(json.coins), gems: count(json.gems), rooms: Array.isArray(json.rooms) ? json.rooms.length : 0 };
 }
 
 /** The days in weeks of seven, the newest last; the first week is whatever's left over at the start. */

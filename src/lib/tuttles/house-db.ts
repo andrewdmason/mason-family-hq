@@ -41,6 +41,11 @@ async function loadStates(admin: Admin, table: "tuttles_house_state" | "tuttles_
   return out;
 }
 
+/** Some people's houses as their phones last sent them, for the Parent Dashboard's look at the purses. */
+export async function loadHouses(admin: Admin, userIds: string[]): Promise<Map<string, HouseState>> {
+  return loadStates(admin, "tuttles_house_state", userIds);
+}
+
 /**
  * What the phone is told after a sync: the street, and its own house back
  * when the one kept here is newer than the one it holds. `me` is the kid the

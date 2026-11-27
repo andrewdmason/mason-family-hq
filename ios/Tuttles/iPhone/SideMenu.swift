@@ -53,11 +53,9 @@ struct SideMenu: View {
         List {
             Section {
                 if store.asParent {
+                    // The kids: how they're doing is all on the dashboard, their Vocab, Math and houses included.
                     place("Dashboard", systemImage: "chart.bar.xaxis", .dashboard)
                     place("This week", systemImage: "calendar", .week)
-                    place("Kids' Vocab", systemImage: "character.book.closed", .vocab)
-                    place("Kids' Math", systemImage: "figure.run", .math)
-                    place("Houses", systemImage: "house", .house)
                 } else {
                     place("Classes", systemImage: "books.vertical", .classes)
                     place("Study", systemImage: "checklist", .study)
@@ -67,7 +65,7 @@ struct SideMenu: View {
                 }
             }
             if store.asParent {
-                // A parent's own practice, apart from the kids'.
+                // A parent's own practice, played as themselves, apart from the kids'.
                 Section {
                     place("Vocab", systemImage: "character.book.closed", .myVocab)
                     place("Math", systemImage: "figure.run", .myMath)

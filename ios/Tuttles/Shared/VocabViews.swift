@@ -218,8 +218,8 @@ struct VocabWordsBar: View {
 
 /// Vocab's first screen. For a kid it's their path (VocabPath.swift): the map
 /// of stages, how today stands across the top (which opens the rest), and
-/// one button at the bottom for the next thing to do. For a parent it's both
-/// kids side by side.
+/// one button at the bottom for the next thing to do. (The parents' look at
+/// the kids' Vocab is the dashboard, ParentDashboard.swift.)
 struct VocabHomeView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
@@ -251,9 +251,7 @@ struct VocabHomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let home = store.vocab {
-                            if let kids = home.kids {
-                                parents(kids, home)
-                            } else if let overview = home.overview {
+                            if let overview = home.overview {
                                 // Their words aren't on this phone (an older website): no path to show.
                                 VocabProgressCards(overview: overview, home: home, start: start, starting: starting)
                             } else {
@@ -376,21 +374,6 @@ struct VocabHomeView: View {
     private func fight(_ stage: VocabStage) {
         guard !starting, let state = store.vocabBeginBoss(stage: stage.number) else { return }
         run = VocabRun(store: store, state: state, number: store.vocab?.overview?.nextSession ?? 1)
-    }
-
-    // MARK: The parents' view
-
-    @ViewBuilder private func parents(_ kids: [VocabHome.Kid], _ home: VocabHome) -> some View {
-        Text("ISEE Verbal Reasoning · \(VocabRules.countdown(daysLeft: home.daysLeft))")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
-        if kids.isEmpty {
-            ContentUnavailableView("No kids are set up yet", systemImage: "character.book.closed").padding(.top, 80)
-        }
-        ForEach(kids) { kid in
-            VocabKidCard(kid: kid)
-        }
     }
 }
 
@@ -595,89 +578,6 @@ struct VocabProgressCards: View {
         let removed = overview.count(.removed)
         if removed > 0 { line += " \(removed) \(removed == 1 ? "word" : "words") skipped as known already." }
         return line
-    }
-}
-
-/// One kid, for a parent: whether today's done, the last two weeks, how far
-/// through the words they are, and what's giving trouble.
-private struct VocabKidCard: View {
-    let kid: VocabHome.Kid
-
-    var body: some View {
-        let overview = kid.overview
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(kid.name).font(.system(.title, design: .serif).weight(.semibold))
-                Text(overview.level.name).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                VocabStreak(days: overview.streak)
-            }
-            status(overview)
-            VocabDayDots(overview: overview)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("\(overview.count(.mastered)) of \(overview.totalWords) mastered").font(.subheadline.weight(.medium))
-                    Spacer()
-                    if let accuracy = overview.accuracy {
-                        Text("\(Int((accuracy * 100).rounded()))% right this week").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                VocabWordsBar(overview: overview)
-            }
-            if overview.count(.removed) > 0 {
-                let removed = overview.count(.removed)
-                Text("\(removed) \(removed == 1 ? "word" : "words") skipped as known already.").font(.footnote).foregroundStyle(.secondary)
-            }
-            if !overview.trouble.isEmpty {
-                Text("\(Text("Trouble words: ").fontWeight(.semibold))\(Text(overview.trouble.prefix(8).map(\.title).joined(separator: ", ")).foregroundStyle(.secondary))")
-                    .font(.subheadline)
-            }
-            Divider()
-            NavigationLink(value: Route.vocabList(kid: kid.id, name: kid.name)) {
-                HStack {
-                    Label("\(kid.name)'s words", systemImage: "list.bullet")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-                .font(.body.weight(.medium))
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(20)
-        .vocabGlass(tint: overview.isDoneToday ? VocabLook.right.opacity(0.12) : nil)
-    }
-
-    @ViewBuilder private func status(_ overview: VocabOverview) -> some View {
-        let sessions = overview.finishedToday
-        // How the sessions went, each one's score.
-        let scores = sessions.isEmpty ? "" : " \(sessions.count) \(sessions.count == 1 ? "session" : "sessions"): "
-            + "\(sessions.map { "\($0.done.correct) of \($0.done.total)" }.formatted(.list(type: .and))) right."
-        VStack(alignment: .leading, spacing: 4) {
-            if overview.isDoneToday {
-                Label("Done today\(overview.day.map { ", \(VocabRules.clock($0.ms))" } ?? "").\(scores)", systemImage: "checkmark.seal.fill")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(VocabLook.rightText)
-            } else if let goal = overview.day, goal.ms > 0 {
-                Label("\(VocabRules.clock(goal.ms)) of \(goal.goalMs / 60_000) minutes so far today.\(scores)", systemImage: "hourglass")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                if let coins = overview.waitingCoins, coins > 0 {
-                    Label("\(coins.formatted()) coins waiting. They go in at \(goal.goalMs / 60_000) minutes.", systemImage: "circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(VocabLook.amberText)
-                }
-            } else {
-                Label("Not started yet today.", systemImage: "circle.dashed")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if let open = overview.inProgress {
-                Label("Session \(overview.nextSession) under way: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 }
 

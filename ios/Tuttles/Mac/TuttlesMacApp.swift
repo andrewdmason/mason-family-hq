@@ -135,7 +135,8 @@ struct MacShell: View {
             open(store.asParent ? .dashboard : .chat(UUID(), isNew: true))
         }
         .onAppear {
-            if store.asParent, ![Route.dashboard, .week, .vocab, .myVocab].contains(root) { root = .dashboard; path = [] }
+            // The kids' Vocab is on the dashboard for a parent, not a place of its own.
+            if store.asParent, ![Route.dashboard, .week, .myVocab].contains(root) { root = .dashboard; path = [] }
             store.play(own: root.isMine)
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in

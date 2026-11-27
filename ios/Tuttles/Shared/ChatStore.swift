@@ -184,8 +184,8 @@ final class ChatStore {
     /// (`play(own:)`); `--mine` starts the simulator there.
     private(set) var onMine = CommandLine.arguments.contains("--mine")
 
-    /// The parents' view of the kids: This week, and how they're doing at
-    /// Vocab, Math and their houses. Nothing of the parent's own.
+    /// The parents' view of the kids: the dashboard, This week, and the
+    /// kids' word lists and houses off the dashboard. Nothing of the parent's own.
     var showingParentView: Bool { asParent && !onMine }
 
     /// A parent at their own Vocab, Math or house: kept apart from the kids'

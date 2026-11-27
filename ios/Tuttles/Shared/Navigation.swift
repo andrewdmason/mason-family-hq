@@ -62,24 +62,27 @@ enum Route: Hashable {
     case classes
     case study
     case week
-    /// ISEE vocabulary practice (Vocab.swift), for a kid and for the parents.
+    /// ISEE vocabulary practice (Vocab.swift), for a kid. (How the kids are
+    /// doing at it is on the parents' dashboard.)
     case vocab
     /// Every word: their own, or one of the kids' (with their name) from the parents' view.
     case vocabList(kid: UUID?, name: String?)
     /// How a kid is doing, off their path: today, the words mastered, the ones giving trouble.
     case vocabProgress
-    /// ISEE math practice as an endless runner (iPhone/Math), for a kid, and
-    /// how the kids are doing at it, for the parents. iPhone only.
+    /// ISEE math practice as an endless runner (iPhone/Math), for a kid.
+    /// iPhone only.
     case math
     /// The house each kid builds with what Vocab and Math pay (iPhone/House),
-    /// and both houses, for the parents. iPhone only.
+    /// and for the parents the kids' houses, opened from the dashboard.
+    /// iPhone only.
     case house
-    /// The Parent Dashboard's own page: each kid's last four weeks, and the
-    /// words to practice with them today (ParentDashboard.swift).
+    /// The Parent Dashboard: how each kid is doing at Vocab and Math, today
+    /// and over the last four weeks, and the way to their words and houses
+    /// (ParentDashboard.swift).
     case dashboard
-    /// A parent's own Vocab, Math and house, beside the kids' in their menu
-    /// (`vocab`, `math` and `house` are the kids' there). The same screens,
-    /// played as themselves (ChatStore.playingAsSelf).
+    /// A parent's own Vocab, Math and house, in their menu under "Yours".
+    /// The same screens as the kids', played as themselves
+    /// (ChatStore.playingAsSelf).
     case myVocab
     case myMath
     case myHouse
