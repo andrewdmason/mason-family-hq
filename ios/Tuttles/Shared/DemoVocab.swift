@@ -68,7 +68,8 @@ enum DemoVocab {
     private static var correct = 0
     private static var missed: [VocabSummary.Missed] = []
     private static var elapsed = 0
-    private static let total = 25
+    /// A short session, to get through its screens quickly (the real one is 25).
+    private static let total = 8
     /// Answering time today before the session being played.
     private static var before: Int { second ? 140_000 : 0 }
     private static let limit = 600_000
@@ -92,7 +93,7 @@ enum DemoVocab {
         if answered >= total {
             return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false, question: nil,
                               summary: VocabSummary(total: total, correct: correct, wrong: total - correct, dontknow: 0, elapsedMs: elapsed,
-                                                    limitMs: limit, newItems: 7, masteredGained: 2, missed: missed,
+                                                    limitMs: limit, newItems: total / 2, masteredGained: 2, missed: missed,
                                                     dayMs: before + elapsed, goalMs: limit))
         }
         return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false,
@@ -110,7 +111,8 @@ enum DemoVocab {
     static func begin() -> VocabState {
         let late = CommandLine.arguments.contains("--vocab-late")
         answered = late ? total - 2 : second ? 5 : 0
-        correct = late ? 13 : 0
+        // The three missed below, and the rest right.
+        correct = late ? answered - 3 : 0
         elapsed = late ? 452_000 : 0
         missed = late ? [.init(title: "reluctant", meaning: "not wanting to do something"),
                          .init(title: "candid", meaning: "honest and direct"),
@@ -131,7 +133,7 @@ enum DemoVocab {
 
     private static func overview(_ level: VocabLevel, done: Bool, streak: Int, mastered: Int, almost: Int, learning: Int) -> VocabOverview {
         if second, level == .lower {
-            let first = VocabOverview.Done(elapsedMs: 140_000, limitMs: limit, correct: 13, total: total)
+            let first = VocabOverview.Done(elapsedMs: 140_000, limitMs: limit, correct: total - 2, total: total)
             var it = overview(level, done: true, streak: streak, mastered: mastered, almost: almost, learning: learning, first: first)
             it.inProgress = .init(answered: 5, total: total)
             return it
