@@ -793,6 +793,8 @@ private func event(
         #expect(CalendarRules.joinName("https://facetime.apple.com/join#v=1") == "FaceTime")
         #expect(CalendarRules.joinName("https://www.book.example.com/m/42") == "book.example.com")
         #expect(CalendarRules.joinName("https://notzoom.us/j/1") == "notzoom.us")
+        #expect(CalendarRules.joinName("https://app.acuityscheduling.com/schedule.php?owner=1&action=zoom&uniqueID=c4") == "Zoom")
+        #expect(CalendarRules.joinName("https://app.acuityscheduling.com/schedule.php?owner=1&action=appt") == "app.acuityscheduling.com")
     }
 
     @Test func aCompactViewSaysThePlaceOrTheCall() {
