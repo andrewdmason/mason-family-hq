@@ -152,6 +152,8 @@ final class HouseBuilt {
             let who = MathCharacter(look: look, height: 1.45)
             who.play("idle")
             HouseLook.physical(who.node)
+            // (Named for the tests, to tell who's at the door from who's about inside.)
+            who.node.name = "door:\(shown.kid)"
             node.addChildNode(who.node)
             people.append(who)
         }
@@ -952,7 +954,7 @@ final class HouseBuilt {
                 else { seen = false }
             }
             who.node.simdPosition = at
-            // (With the house open, it's the family that's about in it: HouseLife.)
+            // (With the house open, they're about inside instead, and nowhere else: HouseLife.)
             who.node.isHidden = !seen || floor != nil
         }
     }

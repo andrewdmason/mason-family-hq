@@ -440,7 +440,47 @@ final class HouseYardTests: XCTestCase {
         }
         check(100)
         wait(for: [arrived], timeout: 10)
-        XCTAssertEqual(staged.life.whereabouts.map(\.name), ["Sebastian", "Oscar", "Dad", "Mom", "Charlie", "Pippy"])
+        // Oscar's house has Oscar in it, and nobody else.
+        XCTAssertEqual(staged.life.whereabouts.map(\.name), ["Oscar"])
+    }
+
+    func testEveryoneIsOnlyEverInOnePlace() {
+        let stage = HouseStage()
+        stage.setAspect(0.46)
+        var mine = HouseState()
+        mine.rooms = ["bedroom", "living"]
+        mine.settle()
+        stage.show([HouseShown(kid: "me", name: "Sebastian Mason", mine: true, state: mine, look: .sebastian),
+                    HouseShown(kid: "b", name: "Oscar", mine: false, state: HouseState(), look: .oscar)])
+        // Who's to be seen anywhere in the town: about in the open house, and the houses with someone at the front door.
+        func seen() -> (about: [String], doors: Set<String>) {
+            var about: [String] = [], doors: Set<String> = []
+            stage.scene.rootNode.enumerateHierarchy { node, _ in
+                var hidden = false, up: SCNNode? = node
+                while let n = up { hidden = hidden || n.isHidden; up = n.parent }
+                guard !hidden, let name = node.name else { return }
+                if name.hasPrefix("who:") { about.append(String(name.dropFirst(4))) }
+                if name.hasPrefix("door:") { doors.insert(String(name.dropFirst(5))) }
+            }
+            return (about, doors)
+        }
+        let all: Set<String> = ["me", "b", HouseTown.parentsID]
+        // Each house open in turn has whoever lives there in it: the pets are at home with whoever's phone it is.
+        for (kid, living) in [("me", ["Sebastian", "Charlie", "Pippy"]), ("b", ["Oscar"]), (HouseTown.parentsID, ["Dad", "Mom"]), ("me", ["Sebastian", "Charlie", "Pippy"])] {
+            stage.fly(to: .house(kid), animated: false)
+            XCTAssertEqual(stage.focus, .house(kid))
+            XCTAssertEqual(stage.life.whereabouts.map(\.name), living, kid)
+            stage.life.step(0.1, showing: 0, facing: 0.7)
+            let now = seen()
+            XCTAssertEqual(now.about.sorted(), living.sorted(), kid)
+            // Whoever's about inside isn't also at the door; everyone else is at their own.
+            XCTAssertEqual(now.doors, all.subtracting([kid]), kid)
+        }
+        // Shut, nobody's about, and everyone's at their own front door.
+        stage.fly(to: .street, animated: false)
+        XCTAssertTrue(stage.life.whereabouts.isEmpty)
+        XCTAssertEqual(seen().about, [])
+        XCTAssertEqual(seen().doors, all)
     }
 
     // MARK: The family
@@ -450,8 +490,11 @@ final class HouseYardTests: XCTestCase {
         let built = HouseBuilt(Self.showcase, on: HouseTown.parentsLot, sky: sky)
         built.present(floor: 0, view: HouseVantage(x: 1, z: 1), focus: nil, animated: false)
         let life = HouseLife()
-        life.gather([.person(.sebastian, name: "Sebastian", height: 1.25), .person(.oscar, name: "Oscar", height: 1.25),
-                     .person(HouseTown.parents.look, name: "Dad", height: 1.5), .dog(name: "Charlie"), .cat(name: "Pippy")])
+        // (Everyone lives in the big house, for the test, but Mom: she's at her own.)
+        let here = Self.showcase.kid
+        life.gather([(.person(.sebastian, name: "Sebastian", height: 1.25), here), (.person(.oscar, name: "Oscar", height: 1.25), here),
+                     (.person(HouseTown.parents.look, name: "Dad", height: 1.5), here), (.person(HouseTown.parents.look, name: "Mom", height: 1.45), "elsewhere"),
+                     (.dog(name: "Charlie"), here), (.cat(name: "Pippy"), here)])
         life.move(into: built)
         XCTAssertEqual(life.whereabouts.map(\.name), ["Sebastian", "Oscar", "Dad", "Charlie", "Pippy"])
         // A few minutes of their day, a tenth of a second at a time.
@@ -494,8 +537,8 @@ final class HouseYardTests: XCTestCase {
         stage.show([HouseShown(kid: "me", name: "Sebastian", mine: true, state: state, look: .sebastian)])
         XCTAssertTrue(stage.life.whereabouts.isEmpty || stage.life.whereabouts.allSatisfy { $0.place.isEmpty })
         stage.fly(to: .room("me", "bedroom"), animated: false)
-        // Sebastian, Dad, Mom, Charlie and Pippy.
-        XCTAssertEqual(stage.life.whereabouts.map(\.name), ["Sebastian", "Dad", "Mom", "Charlie", "Pippy"])
+        // Sebastian, and the pets: Mom and Dad are at their own house.
+        XCTAssertEqual(stage.life.whereabouts.map(\.name), ["Sebastian", "Charlie", "Pippy"])
         XCTAssertTrue(stage.life.whereabouts.allSatisfy { !$0.place.isEmpty })
         // And they can be seen: each is under the house's node, not hidden, once a moment's passed.
         stage.life.step(0.1, showing: 0, facing: 0.7)
@@ -507,7 +550,7 @@ final class HouseYardTests: XCTestCase {
             print("WHO", node.name ?? "", node.simdWorldPosition, hidden, node.parent?.name ?? "-")
             if !hidden { seen.append(node.name ?? "") }
         }
-        XCTAssertEqual(seen.count, 5, "\(seen)")
+        XCTAssertEqual(seen.count, 3, "\(seen)")
         // Poking a thing doesn't change the house.
         stage.poke("me", "bedroom", "bed")
         XCTAssertEqual(stage.state(of: "me"), state)

@@ -76,7 +76,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// Whoever's at home in each, for the renderer's thread to keep moving.
     private var actors: [MathCharacter] = []
     private let lock = NSLock()
-    /// The family, who are about in whichever house is open (HouseLife.swift).
+    /// The family, each about in their own house when it's open (HouseLife.swift).
     let life = HouseLife()
     /// The floor of the open house that's shown, for the renderer's thread.
     private var lifeFloor: Int?
@@ -253,14 +253,18 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         lots = nextLots
         showing += 1
         let run = showing
-        // The family: each kid, Mom and Dad, and the pets.
-        var family: [HouseLife.Who] = []
-        for house in next where house.kid != HouseTown.parentsID {
-            family.append(.person(house.look, name: house.name.split(separator: " ").first.map(String.init) ?? house.name, height: 1.25))
+        // The family, and where each lives: each kid in their own house, Mom
+        // and Dad in theirs, and the pets with whoever's phone it is (or at
+        // Mom & Dad's, with a parent looking).
+        let parents = HouseTown.parentsID
+        var family: [(who: HouseLife.Who, home: String)] = []
+        for house in next where house.kid != parents {
+            family.append((.person(house.look, name: house.name.split(separator: " ").first.map(String.init) ?? house.name, height: 1.25), house.kid))
         }
-        family.append(.person(HouseTown.parents.look, name: "Dad", height: 1.5))
-        if let mom = HouseTown.parents.partner { family.append(.person(mom, name: "Mom", height: 1.45)) }
-        family += [.dog(name: "Charlie"), .cat(name: "Pippy")]
+        family.append((.person(HouseTown.parents.look, name: "Dad", height: 1.5), parents))
+        if let mom = HouseTown.parents.partner { family.append((.person(mom, name: "Mom", height: 1.45), parents)) }
+        let pets = next.first(where: \.mine)?.kid ?? parents
+        family += [(.dog(name: "Charlie"), pets), (.cat(name: "Pippy"), pets)]
         frame()
         guard staged else {
             life.gather(family)
