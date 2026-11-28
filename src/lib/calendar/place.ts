@@ -81,14 +81,23 @@ const SERVICES: [RegExp, string][] = [
   [/(^|\.)doxy\.me$/, "Doxy.me"],
 ];
 
+// A booking service's redirect to the call it made names the call in its
+// query: Acuity's is schedule.php?…&action=zoom (migration 00231).
+const REDIRECTS: Record<string, string> = { zoom: "Zoom", meet: "Google Meet", teams: "Microsoft Teams" };
+
 /** What a join link is called: "Zoom", "Google Meet"; for a link to anything
  * else, its site ("book.example.com"). */
 export function joinName(joinUrl: string): string {
-  let host: string;
+  let url: URL;
   try {
-    host = new URL(joinUrl).hostname.toLowerCase();
+    url = new URL(joinUrl);
   } catch {
     return "Link";
+  }
+  const host = url.hostname.toLowerCase();
+  if (/(^|\.)acuityscheduling\.com$/.test(host)) {
+    const call = REDIRECTS[url.searchParams.get("action")?.toLowerCase() ?? ""];
+    if (call) return call;
   }
   return SERVICES.find(([re]) => re.test(host))?.[1] ?? host.replace(/^www\./, "");
 }

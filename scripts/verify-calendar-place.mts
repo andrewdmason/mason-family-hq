@@ -51,6 +51,8 @@ assert.equal(joinName("https://acme.webex.com/meet/bob"), "Webex");
 assert.equal(joinName("https://facetime.apple.com/join#v=1"), "FaceTime");
 assert.equal(joinName("https://www.book.example.com/m/42"), "book.example.com");
 assert.equal(joinName("https://notzoom.us/j/1"), "notzoom.us");
+assert.equal(joinName("https://app.acuityscheduling.com/schedule.php?owner=1&action=zoom&uniqueID=c4"), "Zoom");
+assert.equal(joinName("https://app.acuityscheduling.com/schedule.php?owner=1&action=appt"), "app.acuityscheduling.com");
 
 // The one line a compact view shows.
 assert.deepEqual(whereLine({ location: "Field 3", join_url: null }), { text: "Field 3", call: false });

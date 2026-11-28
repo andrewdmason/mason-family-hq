@@ -13,7 +13,7 @@ import {
   resolveCreateTarget,
   parseDateParam,
 } from "@/lib/agent/calendar";
-import { createCalendarEvent } from "@/lib/calendar/mutations";
+import { createCalendarEvent, setGoing } from "@/lib/calendar/mutations";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
     location?: unknown;
     description?: unknown;
     calendar?: unknown; // "auto" (default) | "app" | a calendar source id
+    going?: unknown; // other family members' emails, invited to this one event
   };
   try {
     body = await req.json();
@@ -96,15 +97,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Who else is going: invited as guests of this one event, so it shows on
+  // their calendars as the same event rather than as a copy of its own.
+  if (
+    body.going !== undefined &&
+    (!Array.isArray(body.going) || body.going.some((g) => typeof g !== "string"))
+  ) {
+    return NextResponse.json(
+      { error: "going must be a list of family members' emails." },
+      { status: 400 },
+    );
+  }
+  const going = [
+    ...new Set(
+      ((body.going as string[] | undefined) ?? [])
+        .map((g) => g.trim().toLowerCase())
+        .filter((g) => g && g !== memberEmail),
+    ),
+  ];
+
   const admin = createAdminClient();
-  const { data: member } = await admin
+  const { data: members } = await admin
     .from("family_members")
     .select("email")
-    .eq("email", memberEmail)
-    .maybeSingle();
-  if (!member) {
+    .in("email", [memberEmail, ...going]);
+  const known = new Set((members ?? []).map((m) => m.email.toLowerCase()));
+  const unknown = [memberEmail, ...going].filter((e) => !known.has(e));
+  if (unknown.length) {
     return NextResponse.json(
-      { error: `No family member with email ${memberEmail}. See /api/agent/calendar/context.` },
+      { error: `No family member with email ${unknown.join(", ")}. See /api/agent/calendar/context.` },
       { status: 400 },
     );
   }
@@ -130,12 +151,20 @@ export async function POST(req: NextRequest) {
       endTime,
       allDay: body.all_day === true,
     });
+    const warnings: string[] = [];
+    for (const email of going) {
+      const result = await setGoing(id, email, true);
+      if ("error" in result) warnings.push(`${email}: ${result.error}`);
+      else if (result.warning) warnings.push(`${email}: ${result.warning}`);
+    }
     return NextResponse.json(
       {
         ok: true,
         id,
         // Whether it landed on a real Google calendar or app-only.
         wrote_to_google: target.calendarSourceId !== null,
+        going,
+        ...(warnings.length ? { warnings } : {}),
       },
       { status: 201 },
     );

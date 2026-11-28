@@ -524,10 +524,20 @@ enum CalendarRules {
         ("bluejeans.com", "BlueJeans"), ("chime.aws", "Amazon Chime"), ("meet.jit.si", "Jitsi"), ("doxy.me", "Doxy.me"),
     ]
 
+    /// A booking service's redirect to the call it made names the call in its
+    /// query: Acuity's is schedule.php?…&action=zoom (migration 00231).
+    private static let redirects = ["zoom": "Zoom", "meet": "Google Meet", "teams": "Microsoft Teams"]
+
     /// What a join link is called: "Zoom", "Google Meet"; for a link to
     /// anything else, its site ("book.example.com").
     static func joinName(_ joinURL: String) -> String {
-        guard let host = URL(string: joinURL)?.host()?.lowercased() else { return "Link" }
+        guard let url = URL(string: joinURL), let host = url.host()?.lowercased() else { return "Link" }
+        if host == "acuityscheduling.com" || host.hasSuffix(".acuityscheduling.com"),
+           let action = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+               .queryItems?.first(where: { $0.name == "action" })?.value?.lowercased(),
+           let call = redirects[action] {
+            return call
+        }
         if let service = services.first(where: { host == $0.host || host.hasSuffix("." + $0.host) }) { return service.name }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }

@@ -48,6 +48,8 @@ Never edit or delete drive blocks (events whose drive_block is set). They are ge
 
 Times: the family's timezone is ${FAMILY_TZ}. Send datetimes as ISO 8601 with an explicit UTC offset for that timezone. Responses are in UTC, so convert before telling anyone a time.
 
+To put an event on more than one person's calendar, create it once and pass the others in create_event's going (or mark them with set_parent_going on an event that exists). Never create a copy per person: copies are unrelated events that show twice.
+
 Call get_family_context once per conversation to map names to emails. Parents are the members with role "owner" or "parent".`;
 
 const eventId = z.string().describe("The event's id, from list_events or get_review.");
@@ -221,7 +223,7 @@ export function buildCalendarMcpServer(opts: {
     {
       title: "Create a family event",
       description:
-        "Create an event for a family member. It lands on that person's real Google calendar when they have one connected (wrote_to_google in the result says whether it did), so do not also create it in Google Calendar.",
+        "Create an event for a family member. It lands on that person's real Google calendar when they have one connected (wrote_to_google in the result says whether it did), so do not also create it in Google Calendar. To put one event on several family members' calendars, create it once for its owner and list the others in going: they're invited as guests of that same event. Never create a separate copy for each person: the copies are unrelated events that show up twice and drift apart when one is edited.",
       inputSchema: {
         title: z.string(),
         member_email: z
@@ -242,6 +244,13 @@ export function buildCalendarMcpServer(opts: {
           .optional()
           .describe(
             '"auto" (default: the member\'s primary Google calendar), "app" (Family HQ only, not on Google), or a calendar source id from get_family_context.',
+          ),
+
+        going: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Other family members' emails going too. Each is marked going and invited as a guest, so the event is on their calendar as the same event.",
           ),
       },
       annotations: {
@@ -338,7 +347,7 @@ export function buildCalendarMcpServer(opts: {
     {
       title: "Parent attending",
       description:
-        "Mark a family member (usually a parent) as attending, or not attending, an event such as a kid's game. A parent who is going and also has the drive duty gets a one-way drive block instead of a round trip.",
+        "Mark a family member (usually a parent) as attending, or not attending, an event such as a kid's game. On an event that's on a Google calendar this invites them as a guest, so it's how to add someone to an existing event: never create a copy of it on their calendar. A parent who is going and also has the drive duty gets a one-way drive block instead of a round trip.",
       inputSchema: {
         id: eventId,
         member_email: z.string().describe("The attendee's email."),
