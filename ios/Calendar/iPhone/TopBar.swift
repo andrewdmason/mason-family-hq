@@ -4,6 +4,7 @@ import SwiftUI
 /// month (tap to drop open a month grid), Today, the week to move between
 /// days.
 struct TopBar: View {
+    let me: String?
     @Environment(CalendarStore.self) private var store
     @Environment(CalendarNav.self) private var nav
 
@@ -16,8 +17,9 @@ struct TopBar: View {
                 MonthGrid()
                     .transition(.opacity.combined(with: .move(edge: .top)))
             } else {
-                WeekStrip()
+                WeekStrip(me: me)
             }
+            TripBand(me: me)
         }
         .padding(.top, 2)
         .padding(.bottom, 8)
@@ -72,6 +74,18 @@ struct TopBar: View {
             }
 
             Button {
+                nav.tripsOpen = true
+            } label: {
+                Image(systemName: "suitcase")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(CalendarStyle.accent)
+                    .frame(width: 34, height: 30)
+                    .background(CalendarStyle.accent.opacity(0.14), in: .rect(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Trips")
+
+            Button {
                 nav.goToToday()
             } label: {
                 Text(String(Day.today().day))
@@ -113,6 +127,8 @@ private let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 private struct DayCell: View {
     let day: Day
     var dimmed = false
+    /// On a trip of the signed-in member's: a short bar under the date.
+    var onTrip = false
     @Environment(CalendarNav.self) private var nav
 
     var body: some View {
@@ -137,6 +153,11 @@ private struct DayCell: View {
                             .strokeBorder(CalendarStyle.accent, lineWidth: 1.5)
                     }
                 }
+            .overlay(alignment: .bottom) {
+                if onTrip {
+                    Capsule().fill(CalendarStyle.olive).frame(width: 16, height: 3).offset(y: 3)
+                }
+            }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
@@ -147,6 +168,8 @@ private struct DayCell: View {
 
 /// The week in view, Monday first; swipe for the weeks either side.
 private struct WeekStrip: View {
+    let me: String?
+    @Environment(CalendarStore.self) private var store
     @Environment(CalendarNav.self) private var nav
 
     private static let weeks: [Day] = {
@@ -182,7 +205,7 @@ private struct WeekStrip: View {
                         HStack(spacing: 0) {
                             ForEach(0..<7, id: \.self) { offset in
                                 let day = start.adding(days: offset)
-                                DayCell(day: day)
+                                DayCell(day: day, onTrip: store.board.trips.contains { $0.trip.contains(day) && (me.map($0.trip.travelers.contains) ?? true) })
                             }
                         }
                         .padding(.horizontal, 10)

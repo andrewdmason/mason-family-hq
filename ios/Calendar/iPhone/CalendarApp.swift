@@ -88,7 +88,7 @@ struct CalendarScreen: View {
             .ignoresSafeArea(edges: [.top, .bottom])
 
             VStack(spacing: 0) {
-                TopBar()
+                TopBar(me: me)
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { nav.topInset = $0 }
                 Spacer(minLength: 0)
             }
@@ -113,7 +113,7 @@ struct CalendarScreen: View {
             .padding(.bottom, 4)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { nav.screenHeight = $0 }
-        .modifier(ConvertAlert(active: nav.card == nil && !nav.showSettings))
+        .modifier(ConvertAlert(active: nav.card == nil && !nav.showSettings && nav.trip == nil && !nav.tripsOpen && nav.newTrip == nil))
         .environment(nav)
         .animation(.snappy, value: nav.peek)
         .animation(.snappy, value: nav.problem)
@@ -124,6 +124,22 @@ struct CalendarScreen: View {
         }
         .sheet(isPresented: $nav.showSettings) {
             SettingsView(me: me)
+        }
+        .sheet(item: $nav.trip) { ref in
+            TripSheet(id: ref.id, me: me).environment(nav)
+        }
+        .sheet(isPresented: $nav.tripsOpen) {
+            TripsSheet(me: me).environment(nav)
+        }
+        .sheet(item: $nav.newTrip) { trip in
+            TripForm(trip: trip, isNew: true) { made in
+                // Straight on to the trip that's been made.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    nav.trip = TripRef(id: made.id)
+                }
+            }
+            .environment(nav)
         }
         .task { await store.sync() }
         .onOpenURL { url in

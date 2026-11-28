@@ -616,6 +616,24 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   own rows in `calendar_event_hides`, written straight to Supabase (the one
   change that doesn't go through the website), kept in the local copy so the
   widget leaves them out too. The Mac reads them too; the website doesn't yet.
+- **Trips** (`iPhone/TripPage.swift`; the rules and words are shared with the
+  Mac's, in `Shared/Trips.swift` and `Shared/TripFormat.swift`; the Mac
+  section below has the whole of it).
+  - **The band.** On a day of one of your trips, it sits under the week strip
+    ("Costa Rica · Day 4 of 7", tonight's bed, "4 to book"). A tap opens the
+    trip's page. The trip's days carry a short olive bar under their date.
+    On a day the calendar suggests a trip for, the band offers it.
+  - **The suitcase** in the top bar lists trips to come and the ones
+    suggested, with + for a new one.
+  - **A trip's page.**
+    - What's still to book, each with *Sort Out*: attach an event from the
+      calendar, add a flight or stay, *We're Driving*, *Staying with Family*,
+      or *Mark Booked*.
+    - Day by day: bookings with their confirmation codes (a tap copies one),
+      the travelers' events, and where everyone sleeps that night.
+    - The trip's own list.
+  - **The forms** for a trip and a booking are native forms in a sheet, with
+    each time in its own place's clock.
 - Settings are this phone's: who shows and in what order, pins or blocks, the
   view it opens on, hidden events. Calendar setup stays on the website.
 - Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes

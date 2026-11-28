@@ -93,6 +93,12 @@ final class CalendarNav {
     var peek: EventItem?
     var gridDraft: GridDraft?
     var showSettings = false
+    /// A trip's page, opened from the band.
+    var trip: TripRef?
+    /// The Trips list, from the suitcase.
+    var tripsOpen = false
+    /// A trip being made from a suggestion on the band.
+    var newTrip: Trip?
     /// A change that didn't go through, to say so.
     var problem: String?
     /// What a long-press just hid, while its Undo is on offer.
