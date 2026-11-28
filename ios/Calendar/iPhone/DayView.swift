@@ -10,7 +10,7 @@ struct DayPager: View {
     var body: some View {
         let day = Binding<Day?>(
             get: { nav.day },
-            set: { if let new = $0, new != nav.day { nav.day = new } }
+            set: { if let new = $0, new != nav.day { nav.scrolled(to: new) } }
         )
         ScrollView(.horizontal) {
             LazyHStack(spacing: 0) {

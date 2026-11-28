@@ -125,6 +125,17 @@ final class CalendarNav {
         return (-60...180).map { today.adding(days: $0) }
     }
 
+    /// A scroll view bound to the day (the week strip, the Day pager) landing
+    /// on a new one. Set from inside one scroll view's position update, the
+    /// day moves that scroll view only: the other, bound to the same day,
+    /// stays where it was, so a week swiped in the strip left the grid on the
+    /// old day. Set a moment later, as its own change, both follow it.
+    func scrolled(to new: Day) {
+        Task { @MainActor in
+            if day != new { day = new }
+        }
+    }
+
     func goToToday() {
         withAnimation(.snappy) {
             day = .today()

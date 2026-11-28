@@ -162,7 +162,7 @@ private struct WeekStrip: View {
                 guard let new, new != nav.day.weekStart() else { return }
                 let target = new.adding(days: nav.day.weekdayIndex())
                 if let first = CalendarNav.days.first, let last = CalendarNav.days.last {
-                    nav.day = min(max(target, first), last)
+                    nav.scrolled(to: min(max(target, first), last))
                 }
             }
         )
