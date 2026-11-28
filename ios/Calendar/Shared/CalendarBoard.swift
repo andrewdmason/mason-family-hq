@@ -70,6 +70,10 @@ struct Board: Sendable {
     var hides: [EventHide] = []
     /// The days drawn in another place's time (a trip), and which place's.
     var away: [Day: TimeZone] = [:]
+    /// Every trip, worked out (what's open, which day is in which time), by start.
+    var trips: [TripView] = []
+    /// Trips the calendar thinks are there, waiting for a yes.
+    var suggestions: [TripSuggestion] = []
 
     /// The calendar `day` is drawn in: the trip's zone on a day away.
     func calendar(on day: Day, in base: Calendar = .current) -> Calendar {
@@ -95,6 +99,30 @@ struct Board: Sendable {
     /// Just the place of that note ("Costa Rica"), for where the whole of it won't fit.
     func zonePlace(on day: Day, in base: Calendar = .current, home: TimeZone = CalendarRules.familyZone) -> String? {
         zoneNote(on: day, in: base, home: home).map { _ in CalendarRules.zonePlace(calendar(on: day, in: base).timeZone) }
+    }
+
+    func trip(_ id: UUID?) -> TripView? {
+        guard let id else { return nil }
+        return trips.first { $0.id == id }
+    }
+
+    /// The trips on a day, the signed-in member's first.
+    func trips(on day: Day, me: String?) -> [TripView] {
+        trips.filter { $0.trip.contains(day) }.sorted { a, b in
+            let (ma, mb) = (me.map(a.trip.travelers.contains) ?? false, me.map(b.trip.travelers.contains) ?? false)
+            return ma && !mb
+        }
+    }
+
+    /// Events that could be pieces of a trip: its travelers' events from the
+    /// day before it to the day after, not drives, not attached already.
+    func candidates(for trip: Trip) -> [EventItem] {
+        let attached = Set(trip.pieces.compactMap(\.eventID))
+        let first = trip.start.adding(days: -1, in: CalendarRules.utc), last = trip.end.adding(days: 1, in: CalendarRules.utc)
+        return items.filter { item in
+            !item.event.isDrive && !item.hidden && !attached.contains(item.id) && item.day >= first && item.day <= last
+                && (trip.travelers.contains(item.event.memberEmail) || !Set(item.attendees).isDisjoint(with: trip.travelers))
+        }
     }
 
     func member(_ email: String?) -> Member? {
@@ -202,6 +230,16 @@ struct Board: Sendable {
             },
             home: calendar.timeZone
         )
+        // A trip knows better than the guess: its days are in the time of
+        // where its travelers sleep, home's included.
+        let byGoogleID = Dictionary(
+            snapshot.events.compactMap { e in e.googleEventID.map { ($0, e) } }, uniquingKeysWith: { a, _ in a }
+        )
+        board.trips = snapshot.trips
+            .map { Trips.view(Trips.resolved($0, rows: board.rows, byGoogleID: byGoogleID), home: CalendarRules.familyZone) }
+            .sorted { ($0.trip.start, $0.trip.name) < ($1.trip.start, $1.trip.name) }
+        let inferred = board.away
+        board.away = Trips.away(board.trips, me: me, inferred: inferred, home: calendar.timeZone)
         let away = board.away
 
         func chip(_ state: DutyState?) -> DutyChip {
@@ -258,6 +296,10 @@ struct Board: Sendable {
             return a.event.title < b.event.title
         }
         board.byDay = Dictionary(grouping: board.items, by: \.day)
+        board.suggestions = Trips.suggestions(
+            events: board.items, away: inferred, trips: snapshot.trips, dismissed: Set(snapshot.tripDismissals),
+            me: me, today: Day.today(in: calendar), home: CalendarRules.familyZone
+        )
         return board
     }
 }

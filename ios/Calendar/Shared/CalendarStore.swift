@@ -129,6 +129,8 @@ final class CalendarStore {
             async let duties = fetchDuties()
             async let logistics = fetchLogistics()
             async let hides = fetchHides()
+            async let trips = fetchTrips()
+            async let dismissals = fetchTripDismissals()
             var fresh = CalendarSnapshot()
             fresh.members = try await members
             fresh.sources = try await sources
@@ -137,6 +139,8 @@ final class CalendarStore {
             fresh.duties = try await duties
             fresh.logistics = (try? await logistics) ?? snapshot.logistics
             fresh.hides = (try? await hides) ?? snapshot.hides
+            fresh.trips = (try? await trips) ?? snapshot.trips
+            fresh.tripDismissals = (try? await dismissals) ?? snapshot.tripDismissals
             fresh.fetchedAt = Date()
             // A change sent while this was reading: what was read may be from
             // before it. Leave the screen as it is; the read that follows the
@@ -862,6 +866,158 @@ final class CalendarStore {
                 .in("id", values: ids.map { $0.uuidString.lowercased() })
                 .execute()
         }
+    }
+
+    // MARK: Trips
+
+    // A trip, like a hide, touches none of Google, TeamSnap or the drive
+    // blocks, so it's written straight to Supabase under the member's
+    // sign-in. Every change shows at once and is put back if it fails.
+
+    private func fetchTrips() async throws -> [Trip] {
+        let since = Day(Date().addingTimeInterval(-60 * 86_400), in: CalendarRules.utc).description
+        let rows: [TripRows.TripRow] = try await db.from("calendar_trips")
+            .select(TripRows.TripRow.columns)
+            .gte("end_date", value: since)
+            .order("start_date")
+            .execute()
+            .value
+        var trips = rows.compactMap(\.trip)
+        guard !trips.isEmpty else { return [] }
+        let ids = trips.map { $0.id.uuidString.lowercased() }
+        async let pieceRows: [TripRows.PieceRow] = db.from("calendar_trip_pieces")
+            .select(TripRows.PieceRow.columns).in("trip_id", values: ids).execute().value
+        async let itemRows: [TripRows.ItemRow] = db.from("calendar_trip_items")
+            .select(TripRows.ItemRow.columns).in("trip_id", values: ids).order("position").execute().value
+        let pieces = Dictionary(grouping: try await pieceRows.map(\.piece), by: \.tripID)
+        let items = Dictionary(grouping: try await itemRows.map(\.item), by: \.tripID)
+        for i in trips.indices {
+            trips[i].pieces = (pieces[trips[i].id] ?? []).sorted { ($0.start ?? .distantFuture) < ($1.start ?? .distantFuture) }
+            trips[i].items = items[trips[i].id] ?? []
+        }
+        return trips
+    }
+
+    private func fetchTripDismissals() async throws -> [String] {
+        let rows: [TripRows.DismissalRow] = try await db.from("calendar_trip_dismissals").select("key").execute().value
+        return rows.map(\.key)
+    }
+
+    private func mutateTrip(_ id: UUID, _ change: (inout Trip) -> Void) {
+        guard let at = snapshot.trips.firstIndex(where: { $0.id == id }) else { return }
+        change(&snapshot.trips[at])
+    }
+
+    /// Make a trip, with any pieces it starts with (a suggestion's flights and stays).
+    func createTrip(_ trip: Trip, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        var trip = trip
+        trip.createdBy = trip.createdBy ?? me
+        snapshot.trips.append(trip)
+        let row = TripRows.TripRow(trip)
+        let pieces = trip.pieces.map(TripRows.PieceRow.init)
+        let items = trip.items.map(TripRows.ItemRow.init)
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(trip.name)” wasn't saved: \($0)") }) {
+            try await self.db.from("calendar_trips").insert(row).execute()
+            if !pieces.isEmpty { try await self.db.from("calendar_trip_pieces").insert(pieces).execute() }
+            if !items.isEmpty { try await self.db.from("calendar_trip_items").insert(items).execute() }
+        }
+    }
+
+    /// The trip's own fields: name, dates, travelers, notes.
+    func updateTrip(_ trip: Trip, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        mutateTrip(trip.id) { t in
+            t.name = trip.name
+            t.start = trip.start
+            t.end = trip.end
+            t.travelers = trip.travelers
+            t.notes = trip.notes
+        }
+        let row = TripRows.TripRow(trip)
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(trip.name)” wasn't changed: \($0)") }) {
+            try await self.db.from("calendar_trips").upsert(row).execute()
+        }
+    }
+
+    func deleteTrip(_ id: UUID, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        guard let trip = before.first(where: { $0.id == id }) else { return }
+        snapshot.trips.removeAll { $0.id == id }
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(trip.name)” wasn't deleted: \($0)") }) {
+            try await self.db.from("calendar_trips").delete().eq("id", value: id.uuidString.lowercased()).execute()
+        }
+    }
+
+    /// Add a piece, or change one already there.
+    func savePiece(_ piece: TripPiece, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        mutateTrip(piece.tripID) { t in
+            if let at = t.pieces.firstIndex(where: { $0.id == piece.id }) { t.pieces[at] = piece } else { t.pieces.append(piece) }
+            t.pieces.sort { ($0.start ?? .distantFuture) < ($1.start ?? .distantFuture) }
+        }
+        let row = TripRows.PieceRow(piece)
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(piece.displayTitle)” wasn't saved: \($0)") }) {
+            try await self.db.from("calendar_trip_pieces").upsert(row).execute()
+        }
+    }
+
+    func savePieces(_ pieces: [TripPiece], report: @escaping (String) -> Void) {
+        for piece in pieces { savePiece(piece, report: report) }
+    }
+
+    func deletePiece(_ piece: TripPiece, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        mutateTrip(piece.tripID) { $0.pieces.removeAll { $0.id == piece.id } }
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(piece.displayTitle)” wasn't removed: \($0)") }) {
+            try await self.db.from("calendar_trip_pieces").delete().eq("id", value: piece.id.uuidString.lowercased()).execute()
+        }
+    }
+
+    func saveItem(_ item: TripItem, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        mutateTrip(item.tripID) { t in
+            if let at = t.items.firstIndex(where: { $0.id == item.id }) { t.items[at] = item } else { t.items.append(item) }
+        }
+        let row = TripRows.ItemRow(item)
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(item.title)” wasn't saved: \($0)") }) {
+            try await self.db.from("calendar_trip_items").upsert(row).execute()
+        }
+    }
+
+    func deleteItem(_ item: TripItem, report: @escaping (String) -> Void) {
+        let before = snapshot.trips
+        mutateTrip(item.tripID) { $0.items.removeAll { $0.id == item.id } }
+        write(revert: { self.snapshot.trips = before }, failed: { report("“\(item.title)” wasn't removed: \($0)") }) {
+            try await self.db.from("calendar_trip_items").delete().eq("id", value: item.id.uuidString.lowercased()).execute()
+        }
+    }
+
+    /// Say no to a suggested trip, for this member.
+    func dismiss(_ suggestion: TripSuggestion, report: @escaping (String) -> Void) {
+        guard !snapshot.tripDismissals.contains(suggestion.key) else { return }
+        snapshot.tripDismissals.append(suggestion.key)
+        let row = TripRows.DismissalRow(key: suggestion.key)
+        write(revert: { self.snapshot.tripDismissals.removeAll { $0 == suggestion.key } }, failed: {
+            report("“\(suggestion.name)” will be suggested again: \($0)")
+        }) {
+            try await self.db.from("calendar_trip_dismissals").insert(row).execute()
+        }
+    }
+
+    /// Make a suggested trip, its flights and stays attached and read.
+    @discardableResult
+    func accept(_ suggestion: TripSuggestion, report: @escaping (String) -> Void) -> Trip {
+        var trip = suggestion.trip
+        trip.createdBy = me
+        let home = CalendarRules.familyZone
+        trip.pieces = suggestion.eventIDs.compactMap { board.rows[$0] }.map { event in
+            var piece = TripPrefill.piece(from: event, tripID: trip.id)
+            piece.leg = TripPrefill.role(of: piece, in: trip, home: home)
+            return piece
+        }
+        createTrip(trip, report: report)
+        return trip
     }
 
     /// Send a hide, or the end of one, already shown; put it back if it

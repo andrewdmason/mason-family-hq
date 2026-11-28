@@ -46,6 +46,10 @@ struct CalendarWindow: View {
         @Bindable var window = model.window
         let days = prefs.view == .week ? (0..<7).map { window.day.weekStart().adding(days: $0) } : [window.day]
         CalendarGrid(days: days, style: prefs.view)
+            // An open trip's panel floats at the right; the week makes room.
+            .padding(.trailing, window.trip == nil ? 0 : TripOverlays.panelWidth + 14)
+            .animation(.snappy(duration: 0.25), value: window.trip)
+            .overlay { TripOverlays() }
             .overlay(alignment: .bottom) { banners }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
@@ -87,10 +91,18 @@ struct CalendarWindow: View {
                         Button("Earlier", systemImage: "chevron.left") { step(-1) }
                         Button("Later", systemImage: "chevron.right") { step(1) }
                     }
+                    Button("Trips", systemImage: "suitcase") { window.tripsOpen.toggle() }
+                        .help("Trips (⇧⌘T)")
+                        .popover(isPresented: $window.tripsOpen, arrowEdge: .bottom) {
+                            TripsList()
+                                .environment(model)
+                                .environment(store)
+                        }
                     Button("New Event", systemImage: "plus") { compose(days) }
                         .help("New event (⌘N)")
                 }
             }
+
             .confirmationDialog(
                 "This is a repeating event", isPresented: Binding(get: { window.pending != nil }, set: { if !$0 { window.pending = nil } }),
                 titleVisibility: .visible, presenting: window.pending
