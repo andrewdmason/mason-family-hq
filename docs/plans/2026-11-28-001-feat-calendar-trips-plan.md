@@ -48,7 +48,7 @@ the build and are marked *(build)*.
 
 ## Model *(build)*
 
-`supabase/migrations/00231_calendar_trips.sql`:
+`supabase/migrations/00232_calendar_trips.sql`:
 
 - **`calendar_trips`**
   - `name`, `start_date` and `end_date` (whole days, the last one included),
