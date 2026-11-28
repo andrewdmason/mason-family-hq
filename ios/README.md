@@ -784,7 +784,7 @@ is whoever signs in.
     for the kind, flight number, airports, confirmation code, address and
     phone (`TripPrefill`), for you to check.
   - **Storage.** Trips are written straight to Supabase (`calendar_trips`,
-    `_pieces`, `_items`, `_dismissals`; migration 00231), as hides are.
+    `_pieces`, `_items`, `_dismissals`; migration 00232), as hides are.
   - **Picture without opening anything.** `--render-trip <name> <folder>`
     draws a trip's panel, the Trips list, its band and the applet's line into
     that folder without opening anything. `--trip <name>` opens a trip's

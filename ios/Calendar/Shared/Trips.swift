@@ -3,7 +3,7 @@ import Foundation
 // Trips: a named stretch of days with its travelers, the bookings that get
 // them there, house them and bring them home, and their own to-dos. Plan:
 // docs/plans/2026-11-28-001-feat-calendar-trips-plan.md. The rows are
-// supabase/migrations/00231_calendar_trips.sql; the rules (what's still to
+// supabase/migrations/00232_calendar_trips.sql; the rules (what's still to
 // book, which time each day is in, what to suggest, what an event says about
 // itself) are here, tested in Tests/TripTests.swift.
 
