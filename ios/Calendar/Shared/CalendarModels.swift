@@ -364,6 +364,10 @@ struct CalendarSnapshot: Codable, Sendable {
     var logistics = Logistics()
     /// What the signed-in member has hidden from their own view.
     var hides: [EventHide] = []
+    /// Trips ending no more than 60 days ago, with their pieces and items.
+    var trips: [Trip] = []
+    /// Suggested trips the signed-in member said no to, by key.
+    var tripDismissals: [String] = []
     var fetchedAt: Date?
 }
 
@@ -379,6 +383,8 @@ extension CalendarSnapshot {
         duties = try c.decodeIfPresent([UUID: [DutyKind: DutyState]].self, forKey: .duties) ?? [:]
         logistics = try c.decodeIfPresent(Logistics.self, forKey: .logistics) ?? Logistics()
         hides = try c.decodeIfPresent([EventHide].self, forKey: .hides) ?? []
+        trips = (try? c.decodeIfPresent([Trip].self, forKey: .trips)) ?? []
+        tripDismissals = (try? c.decodeIfPresent([String].self, forKey: .tripDismissals)) ?? []
         fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
     }
 }

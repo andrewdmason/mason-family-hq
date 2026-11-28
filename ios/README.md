@@ -743,6 +743,34 @@ is whoever signs in.
     date ("Costa Rica" in Week, "Costa Rica time · 2h ahead" in Day). A day in
     home time says nothing, wherever the Mac is (`Board.zoneNote`, which the
     phone reads too; home is `CalendarRules.familyZone`).
+- **Trips** (`TripViews.swift`, rules in `Shared/Trips.swift`, plan
+  `docs/plans/2026-11-28-001-feat-calendar-trips-plan.md`). A trip is a
+  named stretch of days with its travelers, the flights, stays, cars and
+  drives that get them there, house them and bring them home (each usually
+  an event on the calendar, with details the event doesn't carry), and a
+  list of its own.
+  - **Slots.** Every traveler needs a way there, a bed every night, a way
+    on from one stay to the next and a way home. Anything not booked is
+    "still to book", per person. A piece can be planned but not booked, and
+    one tap says "We're driving" or "Staying with family".
+  - **Where it shows.** A band across the trip's days in the week's header
+    ("5 to book"), which opens the trip in a side panel. The toolbar's
+    suitcase (⇧⌘T) lists trips to come and the ones the calendar suggests.
+    The applet has a line for the trip you're on ("Day 2 of 7 · Costa Rica ·
+    2:10 PM (12:10 PM home)") or one within two weeks with things to book.
+  - **Suggestions.** The calendar suggests trips from your days away, from
+    all-day events of two days or more, and from a flight out with one back.
+  - **Time zones.** A trip's days are drawn in the zone where you sleep that
+    night, home's included, which beats the guess for those days.
+  - **Attaching an event.** From the panel, this reads the event's words
+    for the kind, flight number, airports, confirmation code, address and
+    phone (`TripPrefill`), for you to check.
+  - **Storage.** Trips are written straight to Supabase (`calendar_trips`,
+    `_pieces`, `_items`, `_dismissals`; migration 00231), as hides are.
+  - **Picture without opening anything.** `--render-trip <name> <folder>`
+    draws a trip's panel, the Trips list, its band and the applet's line into
+    that folder without opening anything. `--trip <name>` opens a trip's
+    panel at launch, and `--trips` drops the list open.
 - **The event card** (`EventCardMac.swift`) is the phone's, row for row, in a
   popover off whatever was clicked (or beside the applet): a draft until its ✓
   (⌘Return; Return in a new event's title). What it asks (discard, this one or
@@ -763,7 +791,8 @@ is whoever signs in.
   open), `--no-window`, `--open <title>` opens an event's card, `--new` a new
   one, `--settings`, `--dark`. In a debug build, `--now 14:45` sets the time
   of day, and `--snapshot <file.png>` writes a picture of the app's own
-  windows and quits (it works with the screen locked; with someone at the Mac
+  windows and quits (it worked with the screen locked until macOS 27.2, where a
+  locked screen gives back a blank picture; with someone at the Mac
   it opens over their work and takes their keyboard, so not then), after playing
   `--events "click 510,362; type Dentist tomorrow 3pm; key return"` if given:
   clicks, double-clicks, drags, typing and keys, fed to the window from inside

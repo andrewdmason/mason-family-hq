@@ -808,16 +808,24 @@ private struct GridHeader: View {
 
     var body: some View {
         let today = Day.today()
-        HStack(alignment: .top, spacing: 0) {
-            Color.clear.frame(width: MacStyle.gutter, height: 1)
-            ForEach(Array(layouts.enumerated()), id: \.element.day) { _, layout in
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 0) {
+                Color.clear.frame(width: MacStyle.gutter, height: 1)
+                ForEach(layouts, id: \.day) { layout in
                     title(layout.day, today: today)
-                    allDay(layout)
+                        .frame(width: metrics.dayWidth, alignment: .topLeading)
                 }
-                .padding(.bottom, 6)
-                .frame(width: metrics.dayWidth, alignment: .topLeading)
             }
+            // A trip's band runs across its days, over the all-day events.
+            TripBands(days: days, metrics: metrics)
+            HStack(alignment: .top, spacing: 0) {
+                Color.clear.frame(width: MacStyle.gutter, height: 1)
+                ForEach(layouts, id: \.day) { layout in
+                    VStack(alignment: .leading, spacing: 4) { allDay(layout) }
+                        .frame(width: metrics.dayWidth, alignment: .topLeading)
+                }
+            }
+            .padding(.bottom, 6)
         }
         .padding(.top, 6)
     }

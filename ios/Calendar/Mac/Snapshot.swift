@@ -166,6 +166,47 @@ enum Snapshot {
         try? bitmap.representation(using: .png, properties: [:])?.write(to: file)
     }
 
+    /// `--render-trip <name> <folder>`: the trip whose name starts with
+    /// `name` drawn straight into pictures, with no window opened: its panel,
+    /// the Trips list, its band across its first week and the applet's line
+    /// on its second day.
+    static func renderTrip(model: AppModel, name: String, to folder: URL) {
+        let store = model.store
+        guard let view = store.board.trips.first(where: { $0.trip.name.lowercased().hasPrefix(name.lowercased()) }) else { return }
+        let trip = view.trip
+        func write<V: View>(_ content: V, width: CGFloat, _ file: String) {
+            let framed = content
+                .frame(width: width)
+                .background(CalendarStyle.ground)
+                .environment(store)
+                .environment(model)
+                .tint(CalendarStyle.accent)
+            let renderer = ImageRenderer(content: framed)
+            renderer.scale = 2
+            guard let image = renderer.nsImage, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return }
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: folder.appending(path: file))
+        }
+        write(TripPanel(id: trip.id, scrolls: false), width: 400, "trip-panel.png")
+        write(TripsList(), width: 400, "trips-list.png")
+        let days = (0..<7).map { trip.start.weekStart().adding(days: $0) }
+        let metrics = GridMetrics(width: 1200, days: 7, others: 3, style: .week)
+        let week = VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: MacStyle.gutter, height: 1)
+                ForEach(days, id: \.self) { day in
+                    Text(TripFormat.day(day)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        .padding(.leading, 8)
+                        .frame(width: metrics.dayWidth, alignment: .leading)
+                }
+            }
+            TripBands(days: days, metrics: metrics)
+        }
+        .padding(.vertical, 8)
+        write(week, width: 1200, "trip-band.png")
+        let second = trip.start.adding(days: 1).at(minutes: 14 * 60 + 10)
+        write(AppletTripLine(now: second), width: AppletController.appletWidth, "applet-line.png")
+    }
+
     private static func showBackdrop() {
         guard let screen = NSScreen.main else { return }
         let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)

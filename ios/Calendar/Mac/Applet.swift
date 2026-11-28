@@ -103,7 +103,10 @@ struct AppletView: View {
                 strip
                 Rectangle().fill(CalendarStyle.line).frame(height: 1)
                 TimelineView(.everyMinute) { time in
-                    list(now: Clock.now(time.date))
+                    VStack(spacing: 0) {
+                        AppletTripLine(now: Clock.now(time.date))
+                        list(now: Clock.now(time.date))
+                    }
                 }
             } else {
                 signedOut

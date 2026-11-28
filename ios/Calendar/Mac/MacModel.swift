@@ -128,6 +128,28 @@ final class WindowState {
     /// An hour for the grid to scroll into view: a new event made from the
     /// menu, which may be out of sight.
     var reveal: Int?
+    /// The trip open in the side panel.
+    var trip: UUID?
+    /// The Trips list, dropped from the toolbar.
+    var tripsOpen = false
+    /// A new trip being made, by hand or from a suggestion.
+    var newTrip: Trip?
+    /// A piece of a trip open in its editor.
+    var piece: PieceEdit?
+    /// The trip whose travelers' events are listed to attach one.
+    var attaching: UUID?
+    /// A trip's name, days and travelers being changed.
+    var editTrip: Trip?
+
+    /// A trip dialog is up: a new trip, a trip being edited, a piece, attaching.
+    var hasTripDialog: Bool { newTrip != nil || editTrip != nil || piece != nil || attaching != nil }
+
+    func closeTripDialog() {
+        newTrip = nil
+        editTrip = nil
+        piece = nil
+        attaching = nil
+    }
 
     func open(_ item: EventItem, anchor: String, in store: CalendarStore) {
         peek = nil
@@ -162,6 +184,13 @@ final class WindowState {
             if self.problem == problem { self.problem = nil }
         }
     }
+}
+
+/// A piece of a trip in its editor: one being added or one already there.
+struct PieceEdit: Identifiable {
+    let id = UUID()
+    var piece: TripPiece
+    var isNew: Bool
 }
 
 /// The menubar applet: the line being typed, the day chosen, the card open

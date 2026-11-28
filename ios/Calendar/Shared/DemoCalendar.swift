@@ -144,6 +144,53 @@ enum DemoCalendar {
         _ = add(oscar, "Minimum day", day: 0, 0, nil, source: school, allDay: true)
         _ = add(jenny, "Grandma visiting", day: 2, 0, nil, allDay: true)
         _ = add(sebastian, "Science fair", day: 5, 0, nil, allDay: true)
+
+        // Trips. Costa Rica, as a trip: the flight there and the first lodge
+        // booked, the second lodge planned for one night of two, no flight home.
+        let everyone = [jenny, andrew, sebastian, oscar]
+        let costaRica = Trip(
+            id: id(801), name: "Costa Rica", start: today.adding(days: 11), end: today.adding(days: 17),
+            travelers: everyone, createdBy: andrew
+        )
+        let flight = add(andrew, "Flight to San José (UA 1590)", day: 11, h(7, 5), h(13, 40), at: "San Francisco SFO") {
+            $0.notes = "Your trip confirmation: K7QX2P\nUA 1590 SFO → SJO, seats 23A–23D"
+        }
+        snapshot.going[flight] = [jenny, sebastian, oscar]
+        let lodge = add(andrew, "Stay at Arenal Kioro", day: 11, 0, nil, at: "Hotel Arenal Kioro, La Fortuna, Costa Rica", allDay: true) {
+            $0.end = CalendarRules.allDayInstant(today.adding(days: 14))
+            $0.notes = "Booking reference: 4821-9907\nFront desk +506 2479 1700"
+            $0.locationZone = "America/Costa_Rica"
+        }
+        var trip = costaRica
+        for event in snapshot.events where event.id == flight || event.id == lodge {
+            var piece = TripPrefill.piece(from: event, tripID: trip.id)
+            piece.id = id(event.id == flight ? 811 : 812)
+            piece.leg = TripPrefill.role(of: piece, in: trip, home: CalendarRules.familyZone)
+            trip.pieces.append(piece)
+        }
+        var cr = Calendar(identifier: .gregorian)
+        cr.timeZone = TimeZone(identifier: "America/Costa_Rica")!
+        trip.pieces.append(TripPiece(
+            id: id(813), tripID: trip.id, kind: .stay, booked: false, title: "Tabacón Resort",
+            start: today.adding(days: 14).at(minutes: h(15), in: cr), end: today.adding(days: 17).at(minutes: h(11), in: cr),
+            toPlace: "Tabacón Thermal Resort, La Fortuna", toZone: "America/Costa_Rica",
+            details: ["address": "Tabacón Thermal Resort & Spa, La Fortuna, Costa Rica"]
+        ))
+        trip.items = [
+            TripItem(id: id(821), tripID: trip.id, title: "Tell Marina we're away", done: true, position: 0),
+            TripItem(id: id(822), tripID: trip.id, title: "Airport parking", position: 1),
+        ]
+        // A stub: a travel ball weekend with only its dates, nothing booked.
+        let manteca = Trip(
+            id: id(802), name: "Manteca tournament", start: today.adding(days: 25), end: today.adding(days: 27),
+            travelers: [andrew, sebastian], createdBy: andrew
+        )
+        snapshot.trips = [trip, manteca]
+        // A long all-day event the calendar suggests as a trip.
+        let tahoe = add(jenny, "Tahoe with the Lees", day: 33, 0, nil, allDay: true) {
+            $0.end = CalendarRules.allDayInstant(today.adding(days: 36))
+        }
+        snapshot.going[tahoe] = [andrew, sebastian, oscar]
         snapshot.fetchedAt = Date()
         return snapshot
     }

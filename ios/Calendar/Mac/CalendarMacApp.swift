@@ -20,6 +20,8 @@ import SwiftUI
 //   --new             open a new event's card in the window
 //   --month           with --applet: the month dropped open
 //   --settings        open Settings
+//   --trip <name>     open the trip whose name starts with this, at its week
+//   --trips           drop the Trips list open
 //   --dark            in the dark appearance
 
 @main
@@ -53,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Snapshot.renderList(model: model, to: URL(fileURLWithPath: args[at + 1]))
             exit(0)
         }
+        if let at = args.firstIndex(of: "--render-trip"), args.count > at + 2 {
+            Snapshot.renderTrip(model: model, name: args[at + 1], to: URL(fileURLWithPath: args[at + 2]))
+            exit(0)
+        }
         #endif
         NSApp.mainMenu = makeMenu()
 
@@ -82,6 +88,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if args.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         if args.contains("--new") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.newEvent() }
+        }
+        // A trip's panel open (`--trip Costa`), or the Trips list (`--trips`).
+        if let at = args.firstIndex(of: "--trip"), args.count > at + 1 {
+            let name = args[at + 1].lowercased()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [model] in
+                guard let view = model.store.board.trips.first(where: { $0.trip.name.lowercased().hasPrefix(name) }) else { return }
+                model.window.day = view.trip.start
+                model.window.trip = view.id
+            }
+        }
+        if args.contains("--trips") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [model] in model.window.tripsOpen = true }
         }
         if let at = args.firstIndex(of: "--open"), args.count > at + 1 {
             let title = args[at + 1]
@@ -209,6 +227,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.window.compose(for: me, on: day, from: start, to: min(start + 60, 24 * 60), reveal: true, in: model.store)
     }
 
+    @objc private func newTrip() {
+        guard model.ready else { return }
+        showWindow()
+        let today = Day.today()
+        model.window.newTrip = Trip(name: "", start: today, end: today.adding(days: 2), travelers: model.me.map { [$0] } ?? [])
+    }
+
+    @objc private func showTrips() {
+        guard model.ready else { return }
+        showWindow()
+        model.window.tripsOpen = true
+    }
+
     @objc private func showSettings() {
         applet?.hide()
         NSApp.setActivationPolicy(.regular)
@@ -277,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ]),
             menu("File", [
                 item("New Event", #selector(newEvent), "n", target: self),
+                item("New Trip…", #selector(newTrip), "n", [.command, .shift], target: self),
                 .separator(),
                 item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
             ]),
@@ -292,6 +324,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             menu("View", [
                 item("Week", #selector(weekView), "1", target: self),
                 item("Day", #selector(dayView), "2", target: self),
+                .separator(),
+                item("Trips", #selector(showTrips), "t", [.command, .shift], target: self),
                 .separator(),
                 item("Today", #selector(goToToday), "t", target: self),
                 item("Previous", #selector(previous), "[", target: self),
