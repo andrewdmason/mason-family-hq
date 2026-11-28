@@ -1,8 +1,11 @@
 import SceneKit
 import UIKit
 
-// Who's at home. Whichever house is open has the family in it: the kids,
-// Mom and Dad, Charlie the greyhound and Pippy the cat. They walk from room
+// Who's at home. Everyone lives somewhere, and is only ever there: each kid
+// in their own house, Mom and Dad in theirs, and Charlie the greyhound and
+// Pippy the cat with whichever kid's phone it is. The house that's open has
+// whoever lives in it about inside; everyone else is at their own front door
+// (HouseBuilt's people), or indoors with the pets. They walk from room
 // to room through the doors, up and down the stairs, out of the front door
 // and round the house to whatever's in the yard; they sit on what can be sat
 // on and stand at what can be used; and the pets go where they like, which is
@@ -47,6 +50,8 @@ final class HouseLife {
 
     private final class Actor {
         let who: Who
+        /// The house they live in (a kid's, or HouseTown.parentsID): the only one they're ever in.
+        let home: String
         let node = SCNNode()
         var person: MathCharacter?
         var pet: SCNNode?
@@ -64,8 +69,9 @@ final class HouseLife {
         }
         var isPet: Bool { person == nil }
 
-        init(_ who: Who) {
+        init(_ who: Who, home: String) {
             self.who = who
+            self.home = home
             switch who {
             case .person(let look, _, let height):
                 let made = MathCharacter(look: look, height: height)
@@ -106,12 +112,12 @@ final class HouseLife {
     private var rng = MathRNG(seed: UInt64(Date().timeIntervalSince1970))
     private static let outside = "outside"
 
-    /// Who the family is. The same people come back as the same figures.
-    func gather(_ family: [Who]) {
-        let names = family.map { who -> String in
-            switch who {
-            case .person(let look, let name, _): "\(name)|\(look.head)|\(look.body)|\(look.hair)|\(look.top)"
-            case .dog(let name), .cat(let name): name
+    /// Who the family is, and which house each lives in. The same people come back as the same figures.
+    func gather(_ family: [(who: Who, home: String)]) {
+        let names = family.map { member -> String in
+            switch member.who {
+            case .person(let look, let name, _): "\(name)|\(member.home)|\(look.head)|\(look.body)|\(look.hair)|\(look.top)"
+            case .dog(let name), .cat(let name): "\(name)|\(member.home)"
             }
         }
         lock.lock()
@@ -119,35 +125,40 @@ final class HouseLife {
         guard names != cast else { return }
         for a in actors { a.node.removeFromParentNode() }
         cast = names
-        actors = family.map(Actor.init)
+        actors = family.map { Actor($0.who, home: $0.home) }
         house = nil
         kid = nil
     }
 
+    /// Whoever lives in the house that's open: nobody, with none open.
+    private var home: [Actor] {
+        guard let kid else { return [] }
+        return actors.filter { $0.home == kid }
+    }
+
     // MARK: The house they're in
 
-    /// Move in to the house that's open (nil: nobody's anywhere). The same
-    /// house built again (something's been changed in it) leaves everyone
-    /// where they were, if that's still somewhere.
+    /// The house that's open (nil: none is). Only whoever lives there comes
+    /// in. Going back to a house, or the same house built again (something's
+    /// been changed in it), finds them where they were, if that's still somewhere.
     func move(into built: HouseBuilt?) {
         lock.lock()
         defer { lock.unlock() }
         guard built !== house else { return }
+        for a in actors { a.node.removeFromParentNode() }
         guard let built else {
-            for a in actors { a.node.removeFromParentNode() }
             house = nil
             kid = nil
             return
         }
-        let same = kid == built.shown.kid
         house = built
         kid = built.shown.kid
         survey(built)
-        for a in actors {
-            a.node.removeFromParentNode()
+        for a in home {
             built.node.addChildNode(a.node)
-            if same, hubs[a.place] != nil {
-                // Where they were: but whatever they were on may have gone.
+            if !a.place.isEmpty, let hub = hubs[a.place] {
+                // Where they were: but whatever they were on may have gone, so they're on their feet.
+                a.node.simdPosition.y = hub.y
                 a.path = []
                 a.perch = nil
                 a.settled = false
@@ -326,7 +337,7 @@ final class HouseLife {
 
     // MARK: What they do
 
-    private func taken(_ key: String, by: Actor) -> Bool { actors.contains { $0 !== by && $0.perch?.key == key } }
+    private func taken(_ key: String, by: Actor) -> Bool { home.contains { $0 !== by && $0.perch?.key == key } }
 
     /// Decide where to go next. Mostly somewhere that can be seen: the floor that's shown, or the yard.
     private func choose(_ a: Actor, showing: Int?) {
@@ -345,7 +356,7 @@ final class HouseLife {
             weighted.append((place, w))
         }
         // A dog goes where somebody is, more often than not.
-        if case .dog = a.who, rng.unit() < 0.6, let friend = actors.filter({ !$0.isPet }).randomElement(using: &rng), route(from: a.place, to: friend.place) != nil {
+        if case .dog = a.who, rng.unit() < 0.6, let friend = home.filter({ !$0.isPet }).randomElement(using: &rng), route(from: a.place, to: friend.place) != nil {
             weighted = [(friend.place, 1)]
         }
         var roll = rng.unit() * weighted.map(\.1).reduce(0, +)
@@ -411,7 +422,7 @@ final class HouseLife {
         lock.lock()
         defer { lock.unlock() }
         guard house != nil else { return }
-        for a in actors {
+        for a in home {
             a.clock += dt
             a.person?.update(dt)
             if !a.path.isEmpty {
@@ -508,7 +519,7 @@ final class HouseLife {
     func greet(_ name: String) {
         lock.lock()
         defer { lock.unlock() }
-        guard let a = actors.first(where: { $0.name == name }) else { return }
+        guard let a = home.first(where: { $0.name == name }) else { return }
         let hop = SCNAction.sequence([.moveBy(x: 0, y: 0.35, z: 0, duration: 0.14), .moveBy(x: 0, y: -0.35, z: 0, duration: 0.16)])
         hop.timingMode = .easeOut
         (a.person?.node ?? a.pet)?.runAction(.sequence([hop, hop]))
@@ -539,16 +550,16 @@ final class HouseLife {
         lock.lock()
         defer { lock.unlock() }
         let key = HouseCatalog.key(room, spot)
-        guard let perch = perches[room]?.first(where: { $0.key == key }), !actors.contains(where: { $0.perch?.key == key }) else { return }
-        let free = actors.filter { !$0.isPet && route(from: $0.place, to: room) != nil }
+        guard let perch = perches[room]?.first(where: { $0.key == key }), !home.contains(where: { $0.perch?.key == key }) else { return }
+        let free = home.filter { !$0.isPet && route(from: $0.place, to: room) != nil }
         guard let nearest = free.min(by: { simd_distance($0.node.simdPosition, perch.at) < simd_distance($1.node.simdPosition, perch.at) }) else { return }
         go(nearest, to: room, perch: perch)
     }
 
-    /// For the tests: where everyone is, and what they're on.
+    /// For the tests: where everyone in the open house is, and what they're on.
     var whereabouts: [(name: String, place: String, perch: String?, moving: Bool)] {
         lock.lock()
         defer { lock.unlock() }
-        return actors.map { ($0.name, $0.place, $0.perch?.key, !$0.path.isEmpty) }
+        return home.map { ($0.name, $0.place, $0.perch?.key, !$0.path.isEmpty) }
     }
 }
